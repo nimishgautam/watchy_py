@@ -9,6 +9,7 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.10"
 freetype-py = "^2.3.0"
+Pillow = "^10.0"
 
 [tool.poetry.group.dev.dependencies]
 esptool = "^4.3"

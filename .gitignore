@@ -1,1 +1,5 @@
 /src/secrets.py
+/new_src/src/secrets.py
+*.ttf
+*.pyc
+__pycache__/
