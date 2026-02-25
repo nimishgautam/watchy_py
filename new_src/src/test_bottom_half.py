@@ -42,8 +42,8 @@ BATTERY_V = 3.8   # ~67% full
 #   12:00  personal  90 min  normal, ●◑ duration (clipped)
 #   14:00  general  150 min  normal, ●●+ duration (clipped)
 SERVER_DATA = {
-    "weather_now": {"temp": 72, "condition": "sunny"},
-    "weather_1h":  {"temp": 65, "condition": "cloudy"},
+    "weather_now": {"temp": 72, "condition": "windy_rain"},
+    "weather_1h":  {"temp": 65, "condition": "cloudy_thick"},
     "meetings": [
         {
             "start_hour": 10,
@@ -97,8 +97,8 @@ HOUR = 9
 MINUTE = 0
 
 SERVER_DATA = {
-    "weather_now": {"temp": 68, "condition": "sunny"},
-    "weather_1h":  {"temp": 71, "condition": "sunny"},
+    "weather_now": {"temp": 68, "condition": "night"},
+    "weather_1h":  {"temp": 71, "condition": "night_snow"},
     "meetings": [
         {
             "start_hour": 10,

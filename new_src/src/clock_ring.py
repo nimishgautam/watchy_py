@@ -6,10 +6,9 @@ Designed for the upper-left zone (x=0-99, y=18-98) of the 200x200 display.
 
 import framebuf
 from lib.writer import Writer
-from constants import WHITE, BLACK, RING_CENTER_X, RING_CENTER_Y
+from constants import WHITE, BLACK, RING_CENTER_X, RING_CENTER_Y, RING_INNER_R_THICK
 
-# TODO: replace with a bold ~28-32px font once generated.
-import assets.fonts.fira_sans_regular_28 as hour_font
+import assets.fonts.zen_dots_39 as hour_font
 
 import assets.arcs.q1_thin as q1_thin
 import assets.arcs.q1_thick as q1_thick
@@ -77,15 +76,10 @@ def draw_clock(fb, hour: int, minute: int):
         hour: 0-23.
         minute: 0-59.
     """
-    states = _quarter_states(minute)
-
-    for i, state in enumerate(states):
-        if state == 0:
-            continue
-        thin_mod, thick_mod = _ARC_MODULES[i]
-        _blit_arc(fb, thick_mod if state == _THICK else thin_mod)
-
-    # 24-hour display, no leading zero.
+    # Render the hour number first so arc segments paint over character-cell
+    # whitespace rather than the other way round.  _blit_arc uses WHITE as the
+    # transparency key, so only the black arc pixels overwrite — the centered
+    # number underneath stays intact.
     hour_str = str(hour)
 
     text_w = _text_width(hour_font, hour_str)
@@ -96,3 +90,23 @@ def draw_clock(fb, hour: int, minute: int):
     wri = Writer(fb, hour_font, DISPLAY_W, DISPLAY_H, WHITE, BLACK, verbose=False)
     wri.set_textpos(fb, y, x)
     wri.printstring(hour_str)
+
+    states = _quarter_states(minute)
+
+    for i, state in enumerate(states):
+        if state == 0:
+            continue
+        thin_mod, thick_mod = _ARC_MODULES[i]
+        _blit_arc(fb, thick_mod if state == _THICK else thin_mod)
+
+    # "Almost next hour" dot — shown when all four quarters are thick
+    # (minute >= 58) so the full ring reads as "almost :00" not "solidly :00".
+    if minute >= 58:
+        inner_top = RING_CENTER_Y - RING_INNER_R_THICK
+        text_top = y
+        dot_y = (inner_top + text_top) // 2
+        _DOT_R = 2
+        for dy in range(-_DOT_R, _DOT_R + 1):
+            for dx in range(-_DOT_R, _DOT_R + 1):
+                if dx * dx + dy * dy <= _DOT_R * _DOT_R:
+                    fb.pixel(RING_CENTER_X + dx, dot_y + dy, BLACK)

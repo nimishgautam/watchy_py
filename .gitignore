@@ -1,5 +1,8 @@
 /src/secrets.py
 /new_src/src/secrets.py
+/new_src/ble_server/secrets.py
+/new_src/ble_server/cache/
+**/ms_token.json
 *.ttf
 *.pyc
 __pycache__/

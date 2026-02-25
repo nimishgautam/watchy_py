@@ -9,7 +9,7 @@ runs on every wake, but it must check *what* needs refreshing and only do that
 work.
 
 This is the single most important architectural point. Getting this wrong (e.g.,
-connecting to WiFi on every wake) will kill battery life.
+activating BLE on every wake) will kill battery life.
 
 ## Wake Schedule
 
@@ -18,73 +18,94 @@ every hour:
 
 | Minute | Purpose |
 |---|---|
-| **0** | Quarter boundary — display update + calendar + maybe weather/NTP |
+| **0** | Quarter boundary — display update + BLE sync (weather + meetings + time) |
 | **13** | Ring transition (thin → thick for Q1) — display update only |
-| **15** | Quarter boundary — display update + calendar |
+| **15** | Quarter boundary — display update + BLE sync |
 | **28** | Ring transition (thin → thick for Q2) — display update only |
-| **30** | Quarter boundary — display update + calendar + maybe weather/NTP |
+| **30** | Quarter boundary — display update + BLE sync |
 | **43** | Ring transition (thin → thick for Q3) — display update only |
-| **45** | Quarter boundary — display update + calendar |
+| **45** | Quarter boundary — display update + BLE sync |
 | **58** | Ring transition (thin → thick for Q4) — display update only |
 
 That's **8 wakes per hour**. Four of them are "quarter boundary" wakes (0, 15,
-30, 45) where we may fetch data over WiFi. Four are "ring transition" wakes
-(13, 28, 43, 58) that only redraw the display from cached data — no WiFi
+30, 45) where we sync data over BLE. Four are "ring transition" wakes
+(13, 28, 43, 58) that only redraw the display from cached data — no BLE
 needed.
 
 ## Data Source Refresh Cadence
 
-| Source | When | WiFi? | Notes |
+| Source | When | BLE? | Notes |
 |---|---|---|---|
 | **Battery voltage** | Every wake (8×/hr) | No | Local ADC read, essentially free |
-| **Server endpoint** | Quarter boundaries (4×/hr): 0, 15, 30, 45 | Yes | One HTTP call returns meetings + weather + utc_offset |
-| **NTP time sync** | Once/day: at 1:30 AM | Yes | RTC drift is ~seconds/day; more frequent is wasteful |
+| **BLE sync** | Quarter boundaries (4×/hr): 0, 15, 30, 45 | Yes | One BLE exchange returns meetings + weather + utc_offset + time sync |
+| **Time sync** | Every BLE sync (via TIME_SYNC message) | Yes | Replaces NTP — laptop sends UTC epoch over BLE. NTP kept as manual fallback. |
 
-### Single Server Endpoint
+### BLE Sync
 
-The watch calls **one URL** and gets back a single JSON blob with everything:
-meetings, current weather, +1h weather, and the current UTC offset. See
-`design-overview.md § Server Endpoint` for the response schema.
+The watch connects to a bonded laptop running a GATT peripheral service
+and exchanges a single request/response that provides everything:
+meetings, current weather, +1h weather, the current UTC offset, and a
+UTC epoch for RTC drift correction. See `ble-protocol.md` for the full
+wire-level specification and `design-overview.md § Data Transport` for
+the JSON schema.
 
-This means we don't need to decide on the watch which data sources to fetch
-on which wake — the server always returns the full picture. The watch either
-calls the endpoint (quarter boundary wakes) or doesn't (ring transition wakes).
-Simple.
+The watch either syncs (quarter boundary wakes or manual BACK-button
+press) or doesn't (ring transition wakes). Simple.
 
-The server is responsible for rate-limiting its own upstream API calls (e.g.,
-caching weather for 30 min server-side, only querying Google Calendar when
-needed). The watch doesn't need to care — it can call the endpoint as often
-as it wants.
+The laptop service is responsible for talking to upstream APIs (Google
+Calendar, weather, etc.), caching, and trimming the response. The watch
+doesn't need to care — it just sends a SYNC_REQUEST and processes the
+response.
 
-### WiFi Session Flow
+### BLE Session Flow
 
 ```
 wake at minute 0 (quarter boundary):
-    1. WiFi connect
-    2. Hit server endpoint → get JSON
-    3. NTP sync if 1:30 AM
-    4. WiFi disconnect
-    5. Cache server response to flash
-    6. Render display from fresh data
-    7. Deep sleep until minute 13
+    1. BLE scan + connect to bonded laptop
+    2. Write SYNC_REQUEST
+    3. Receive TIME_SYNC + SYNC_RESPONSE (+ optional EXTRA)
+    4. Write ACK, disconnect BLE
+    5. Apply time correction from TIME_SYNC epoch
+    6. Cache server_data to flash
+    7. Render display from fresh data
+    8. Deep sleep until minute 13
 
 wake at minute 13 (ring transition):
-    1. (no WiFi)
+    1. (no BLE)
     2. Render display from cached data (only ring state changes)
     3. Deep sleep until minute 15
 
 wake at minute 15 (quarter boundary):
-    1. WiFi connect
-    2. Hit server endpoint → get JSON
-    3. WiFi disconnect
-    4. Cache server response to flash
-    5. Render display from fresh data
-    6. Deep sleep until minute 28
+    1. BLE scan + connect to bonded laptop
+    2. Write SYNC_REQUEST
+    3. Receive TIME_SYNC + SYNC_RESPONSE
+    4. Write ACK, disconnect BLE
+    5. Cache server_data to flash
+    6. Render display from fresh data
+    7. Deep sleep until minute 28
 ```
 
-Ring-transition wakes (13, 28, 43, 58) never touch WiFi. They read cached
+Ring-transition wakes (13, 28, 43, 58) never touch BLE. They read cached
 data from flash, update only the ring state, render, and go back to sleep.
 These should be very fast (~1–2 seconds awake).
+
+### Manual Sync (BACK Button)
+
+A short press of the BACK button forces a BLE sync regardless of the wake
+schedule. This lets the user recover from a missed sync without waiting
+for the next quarter boundary.
+
+### Stale Data Handling
+
+If a BLE sync fails (laptop asleep, out of range, service not running),
+the watch sets a `_server_data_stale` flag and renders from cached data:
+
+- An "X" indicator appears on the top strip left of the battery icon.
+- Weather labels switch from "now"/"+1h" to the hour they were fetched
+  (e.g. "17h"/"18h").
+- Ended meetings (start + duration in the past) are removed naturally
+  by the existing render-time filter.
+- The watch retries at the next quarter boundary or on manual BACK press.
 
 ## What Gets Redrawn When
 
@@ -130,18 +151,13 @@ deep sleep.
 
 ### Cache Freshness
 
-Each cached data source should track when it was last updated. If data is stale
-beyond a threshold, the renderer should indicate this subtly (e.g., a small dot
-or marker near the weather zone, or dimmed text). The display should never show
-*nothing* just because a fetch failed — stale data is better than no data.
+The cache tracks the hour and minute of the last successful BLE sync.
+Data is considered stale immediately after a failed sync attempt.  The
+renderer shows an "X" indicator and switches weather labels from relative
+("now"/"+1h") to absolute ("17h"/"18h") using the cached fetch hour.
 
-**Staleness thresholds (suggested):**
-
-| Source | "Stale" after | "Very stale / unavailable" after |
-|---|---|---|
-| Calendar | 30 min (missed 2 fetches) | 2 hours |
-| Weather | 2 hours | 6 hours |
-| NTP | 48 hours | 1 week |
+The display should never show *nothing* just because a sync failed —
+stale data is better than no data.
 
 ## RTC Alarm Programming
 
@@ -177,46 +193,43 @@ minute register rolls to that value.
 ```python
 def update():
     now = rtc.datetime()
-    minute = now[5]  # current minute
+    minute = now[5]
     hour = now[4]
 
-    # Always: read battery (free, local ADC)
     battery = read_battery_voltage()
 
-    # Quarter-boundary wake → fetch from server
-    is_quarter = minute in (0, 15, 30, 45)
-    if is_quarter:
-        wifi_connect()
-        try:
-            server_data = fetch_server_endpoint()
-            cache_write("server", server_data)
-        except:
-            pass  # render from stale cache
+    should_sync = minute in (0, 15, 30, 45) or force_sync_flag
+    force_sync_flag = False
 
-        # NTP: once/day at 1:30 AM
-        if minute == 30 and hour == 1:
+    if should_sync:
+        if DUMMY_DATA:
+            server_data = build_mock_data()
+            stale = False
+        else:
             try:
-                sync_ntp()
+                client = BLEClient()
+                client.scan_and_connect()
+                result = client.request_sync()  # returns data + epoch
+                client.disconnect()
+                server_data = result["data"]
+                apply_time_sync(result["epoch"])
+                cache_write(server_data, hour, minute)
+                stale = False
             except:
-                pass
+                stale = True  # render from stale cache
 
-        wifi_disconnect()
+    data = cache_read()
+    stale_since_hour = cached_fetch_hour if stale else None
 
-    # Load data (fresh if just fetched, cached otherwise)
-    data = cache_read("server")
-
-    # Render all zones from current RTC time + data + battery
     render_display(
         time=rtc.datetime(),
         battery=battery,
         data=data,
+        stale_since_hour=stale_since_hour,
     )
 
-    # Schedule next wake
     next_minute = compute_next_wake(minute)
     rtc.set_alarm_at_minute(next_minute)
-
-    # Sleep
     deep_sleep()
 ```
 
@@ -237,35 +250,29 @@ cycles.
 
 ## Open Issues
 
-### Server Proxy (not yet built)
+### Laptop BLE Service (not yet built)
 
-The watch assumes a single HTTP endpoint returning a combined JSON payload
-(see `design-overview.md § Server Endpoint` for schema). The server must:
+The watch connects over BLE to a laptop running a GATT peripheral that
+provides the same JSON payload previously envisioned for an HTTP server.
+See `ble-protocol.md` for the full wire-level specification.
 
-- **Talk to Google Calendar** (OAuth, recurring event expansion, filtering to
-  today's remaining meetings). The ESP32 can't do OAuth or handle complex TLS
-  flows — this is the main reason the proxy exists.
-- **Talk to a weather API** (e.g., OpenWeatherMap free tier — up to 1000
-  calls/day, plenty of headroom). Return current conditions + 1h forecast.
-  The server can cache weather for 30+ minutes to stay well within rate limits.
+The laptop service must:
+
+- **Advertise** the custom service UUID and accept encrypted connections
+  from the bonded watch.
+- **Talk to Google Calendar** (OAuth, recurring event expansion, filtering
+  to today's remaining meetings).
+- **Talk to a weather API** (e.g., OpenWeatherMap free tier). Return
+  current conditions + 1h forecast.
 - **Return the current UTC offset** for the user's timezone, solving DST
-  automatically. The watch applies this offset when rendering; no hardcoded
-  `UTC_OFFSET` in `secrets.py` needed.
-- **Keep the response small.** The ESP32 buffers the full HTTP response in
-  RAM (`urequests`). A few hundred bytes of JSON is ideal. The server trims
-  fields, truncates long meeting titles, and returns only what the watch needs.
+  automatically.
+- **Send a TIME_SYNC** message with the current UTC epoch so the watch
+  can correct RTC drift (replaces NTP).
+- **Keep the response small.** The chunked protocol handles arbitrary
+  payload sizes, but a few hundred bytes of JSON is ideal.
 
-**Protocol:** Plain HTTP on the local network is strongly preferred over HTTPS.
-TLS handshakes on MicroPython consume ~30–50 KB of heap, which is tight
-alongside the framebuffer and font data. A local-network proxy avoids this
-entirely and also centralizes API keys server-side (the watch only needs the
-proxy URL + optionally a simple shared secret).
-
-**For now:** The server doesn't exist yet and doesn't need to. We develop
-against a **mock JSON** file with the same schema (either hardcoded on-device
-or served by a one-liner local HTTP server). The mock is both the development
-fixture and the integration contract. See `design-overview.md § Server
-Endpoint`.
+**For development:** set `DUMMY_DATA = True` in `constants.py` to use
+hardcoded mock data without touching BLE.
 
 ### BM8563 Alarm Feasibility (confirmed)
 

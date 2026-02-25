@@ -1,59 +1,103 @@
 #!/usr/bin/env python3
-"""Generate weather icon bitmaps for the watch.
+"""Generate weather icon modules for the watch from curated SVG sources.
 
-Run this on the host machine. Requires: Pillow (pip install Pillow)
+Run this on the host machine.
 
-Currently generates one placeholder icon (a filled circle) that all weather
-conditions share.  When real per-condition icons are designed, add an entry to
-ICONS below — each entry produces its own module.  The aliases in
-new_src/src/assets/icons/__init__.py can then be pointed at the real modules.
+Dependencies:
+  - Pillow
+  - CairoSVG
 
-Writes to: new_src/src/assets/icons/
+What this script does:
+  1) Copies selected SVGs from repo-level weather-icon-svgs into
+     new_src/src/assets/icons/svgs using canonical condition names.
+  2) Rasterizes each staged SVG to a 28x28 1-bit image.
+  3) Converts each bitmap to MONO_HLSB bytes and writes icon modules into
+     new_src/src/assets/icons/.
+  4) Generates assets/icons/__init__.py exposing canonical condition modules.
 """
 
+import io
 import math
 import shutil
 from pathlib import Path
 
 from PIL import Image
 
-ICON_SIZE = 20  # square icon, pixels
-
-OUTPUT_DIR = Path(__file__).resolve().parent.parent / "src" / "assets" / "icons"
-
-
-# ---------------------------------------------------------------------------
-# Icon drawing routines — each returns a PIL Image (mode "1", white bg)
-# ---------------------------------------------------------------------------
-
-def _draw_placeholder(size: int) -> Image.Image:
-    """Filled circle centered in the canvas."""
-    img = Image.new("1", (size, size), color=1)  # white background
-    cx = cy = size / 2
-    r = size / 2 - 2  # 2 px margin so edge pixels stay clean
-    for y in range(size):
-        for x in range(size):
-            if math.sqrt((x - cx + 0.5) ** 2 + (y - cy + 0.5) ** 2) <= r:
-                img.putpixel((x, y), 0)  # black fill
-    return img
+try:
+    import cairosvg
+except ImportError as exc:
+    raise SystemExit(
+        "Missing dependency: cairosvg. Install with `pip install cairosvg`."
+    ) from exc
 
 
-# Map of output stem → drawing function.  Add real icons here later.
-ICONS = {
-    "placeholder": _draw_placeholder,
+ICON_SIZE = 28
+
+NEW_SRC_DIR = Path(__file__).resolve().parent.parent
+REPO_ROOT_DIR = NEW_SRC_DIR.parent
+OUTPUT_DIR = NEW_SRC_DIR / "src" / "assets" / "icons"
+STAGED_SVG_DIR = OUTPUT_DIR / "svgs"
+SOURCE_SVG_DIR = REPO_ROOT_DIR / "weather-icon-svgs"
+
+# condition -> source SVG filename from weather-icon-svgs
+ICON_SOURCES = {
+    "sunny": "wi-day-sunny.svg",
+    "cloudy_light": "wi-day-sunny-overcast.svg",
+    "cloudy_thin": "wi-day-cloudy-high.svg",
+    "cloudy_thick": "wi-day-cloudy.svg",
+    "rain": "wi-day-rain.svg",
+    "sunny_rain": "wi-day-rain-mix.svg",
+    "windy": "wi-strong-wind.svg",
+    "windy_rain": "wi-day-rain-wind.svg",
+    "snow": "wi-day-snow.svg",
+    "severe_weather": "wi-storm-warning.svg",
+    "night": "wi-night-clear.svg",
+    "night_rain": "wi-night-rain.svg",
+    "night_snow": "wi-night-snow.svg",
+    "snow_storm": "wi-snow-wind.svg",
 }
 
 
-# ---------------------------------------------------------------------------
-# Helpers shared with generate_arcs.py
-# ---------------------------------------------------------------------------
+def _draw_placeholder(size: int) -> Image.Image:
+    """Filled circle centered in the canvas, used for unknown conditions."""
+    img = Image.new("1", (size, size), color=1)  # white background
+    cx = cy = size / 2
+    r = size / 2 - 2
+    for y in range(size):
+        for x in range(size):
+            if math.sqrt((x - cx + 0.5) ** 2 + (y - cy + 0.5) ** 2) <= r:
+                img.putpixel((x, y), 0)
+    return img
+
+
+def _stage_svgs():
+    """Copy and rename canonical weather SVGs into src/assets/icons/svgs."""
+    STAGED_SVG_DIR.mkdir(parents=True, exist_ok=True)
+    print("Staging SVGs...")
+    for condition, source_name in ICON_SOURCES.items():
+        source_path = SOURCE_SVG_DIR / source_name
+        if not source_path.exists():
+            raise FileNotFoundError(f"Missing source SVG: {source_path}")
+        staged_path = STAGED_SVG_DIR / f"{condition}.svg"
+        shutil.copyfile(source_path, staged_path)
+        print(f"  staged {condition}.svg <= {source_name}")
+
+
+def _render_svg_to_mono(svg_path: Path, size: int) -> Image.Image:
+    """Rasterize SVG to 1-bit Pillow image at target size."""
+    png_data = cairosvg.svg2png(
+        url=str(svg_path),
+        output_width=size,
+        output_height=size,
+        background_color="white",
+    )
+    # Threshold after antialiased rasterization for crisp e-ink output.
+    gray = Image.open(io.BytesIO(png_data)).convert("L")
+    return gray.point(lambda p: 0 if p < 160 else 255, mode="1")
+
 
 def _image_to_mono_hlsb(img: Image.Image) -> bytes:
-    """Convert a 1-bit Pillow image to MONO_HLSB byte format.
-
-    MONO_HLSB: each byte holds 8 horizontal pixels, MSB is leftmost.
-    1 = white, 0 = black.  Each row is padded to a whole number of bytes.
-    """
+    """Convert a 1-bit Pillow image to MONO_HLSB byte format."""
     w, h = img.size
     bytes_per_row = (w + 7) // 8
     result = bytearray(bytes_per_row * h)
@@ -88,47 +132,63 @@ DATA = (
     print(f"  wrote {path.name} ({width}x{height}, {len(data)} bytes)")
 
 
-def _write_init(path: Path, stems: list):
-    """Write __init__.py that aliases all weather condition names to placeholder."""
-    condition_names = [
-        "sunny",
-        "cloudy",
-        "partly_cloudy",
-        "rain",
-        "snow",
-        "thunderstorm",
-        "fog",
-        "night",
-    ]
+def _write_init(path: Path, condition_names: list[str]):
     lines = [
         "# Auto-generated by build/generate_icons.py — do not edit by hand.",
-        "#",
-        "# All condition names are aliased to the placeholder bitmap until",
-        "# real per-condition icons are designed and added to ICONS in",
-        "# build/generate_icons.py.",
         "",
         "from . import placeholder",
-        "",
     ]
     for name in condition_names:
-        lines.append(f"{name} = placeholder")
+        lines.append(f"from . import {name}")
+    lines.extend(
+        [
+            "",
+            "__all__ = [",
+            '    "placeholder",',
+        ]
+    )
+    for name in condition_names:
+        lines.append(f'    "{name}",')
+    lines.append("]")
     lines.append("")
     path.write_text("\n".join(lines))
-    print(f"  wrote {path.name}  (aliases: {', '.join(condition_names)})")
+    print(f"  wrote {path.name} ({len(condition_names)} conditions)")
+
+
+def _cleanup_generated_modules(valid_stems: set[str]):
+    """Remove stale generated icon modules after a clean taxonomy switch."""
+    for path in OUTPUT_DIR.glob("*.py"):
+        if path.name == "__init__.py":
+            continue
+        if path.stem not in valid_stems:
+            path.unlink()
+            print(f"  removed stale module {path.name}")
 
 
 def main():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    _stage_svgs()
 
-    print("Generating icon bitmaps...")
-    stems = []
-    for stem, draw_fn in ICONS.items():
-        img = draw_fn(ICON_SIZE)
+    print(f"Generating icon bitmaps at {ICON_SIZE}x{ICON_SIZE}...")
+    condition_names = list(ICON_SOURCES.keys())
+    generated_stems = set(condition_names) | {"placeholder"}
+
+    # Keep placeholder fallback for unknown conditions.
+    placeholder_img = _draw_placeholder(ICON_SIZE)
+    _write_module(
+        OUTPUT_DIR / "placeholder.py",
+        ICON_SIZE,
+        ICON_SIZE,
+        _image_to_mono_hlsb(placeholder_img),
+    )
+
+    for condition in condition_names:
+        img = _render_svg_to_mono(STAGED_SVG_DIR / f"{condition}.svg", ICON_SIZE)
         data = _image_to_mono_hlsb(img)
-        _write_module(OUTPUT_DIR / f"{stem}.py", ICON_SIZE, ICON_SIZE, data)
-        stems.append(stem)
+        _write_module(OUTPUT_DIR / f"{condition}.py", ICON_SIZE, ICON_SIZE, data)
 
-    _write_init(OUTPUT_DIR / "__init__.py", stems)
+    _write_init(OUTPUT_DIR / "__init__.py", condition_names)
+    _cleanup_generated_modules(generated_stems)
 
     pycache = OUTPUT_DIR / "__pycache__"
     if pycache.exists():

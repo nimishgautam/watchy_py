@@ -24,8 +24,8 @@ DAY = 24
 BATTERY_V = 3.8   # ~67% full
 
 SERVER_DATA = {
-    "weather_now": {"temp": 72, "condition": "sunny"},
-    "weather_1h":  {"temp": 65, "condition": "cloudy"},
+    "weather_now": {"temp": 72, "condition": "sunny_rain"},
+    "weather_1h":  {"temp": 65, "condition": "cloudy_thin"},
     "meetings": [],
 }
 

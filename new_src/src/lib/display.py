@@ -5,9 +5,6 @@ from machine import Pin, SPI
 import framebuf
 
 # fonts
-import assets.fonts.fira_sans_regular_24 as fira_sans_regular_24
-
-
 class Display:
 
     BACKGROUND = 0

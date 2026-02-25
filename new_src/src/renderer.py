@@ -95,10 +95,10 @@ def _duration_glyph(duration_min: int) -> str:
     return _DURATION_OVER_2H
 
 
-_WEATHER_ROW_HEIGHT = 36   # px per weather row (icon + text)
+_WEATHER_ROW_HEIGHT = 44   # px per weather row (28 px icon + text)
 _WEATHER_ICON_X = 104      # icon left edge (4 px from WEATHER_X)
-_WEATHER_TEMP_X = 128      # temp text left edge (4 px gap after 20 px icon)
-_WEATHER_LABEL_X = 162     # condition label left edge (after typical temp width)
+_WEATHER_TEMP_X = 136      # temp text left edge (4 px gap after 28 px icon)
+_WEATHER_LABEL_X = 170     # short label ("now"/"+1h") right of temperature
 
 # Battery icon geometry (body + positive-terminal bump)
 # Total width == BATT_BAR_W so bar_x positioning is unchanged.
@@ -116,6 +116,7 @@ def render_all(
     day: int,
     battery_voltage: float,
     server_data: dict,
+    stale_since_hour: int = None,
 ):
     """Render the complete watch face into fb.
 
@@ -128,11 +129,14 @@ def render_all(
         day: 1-31.
         battery_voltage: volts (e.g. 3.8).
         server_data: dict matching the server schema (see design-overview.md).
+        stale_since_hour: None when data is fresh.  When stale, the hour
+            at which the data was last fetched — used to show an "X"
+            indicator and hour-based weather labels.
     """
     fb.fill(WHITE)
-    _render_top_strip(fb, week_day, month, day, battery_voltage)
+    _render_top_strip(fb, week_day, month, day, battery_voltage, stale_since_hour)
     draw_clock(fb, hour, minute)
-    _render_weather(fb, server_data)
+    _render_weather(fb, server_data, stale_since_hour)
     _render_meetings(fb, server_data, hour, minute)
 
 
@@ -140,8 +144,9 @@ def render_all(
 # Zone renderers
 # ---------------------------------------------------------------------------
 
-def _render_top_strip(fb, week_day: int, month: int, day: int, battery_voltage: float):
-    """Top strip: date left, battery bar right.  Zone: y=0 to TOP_STRIP_H-1."""
+def _render_top_strip(fb, week_day: int, month: int, day: int,
+                      battery_voltage: float, stale_since_hour: int = None):
+    """Top strip: date left, stale indicator + battery bar right."""
     # --- Date text — vertically centered in the strip ---
     date_str = (
         week_day_to_short_string(week_day)
@@ -172,6 +177,10 @@ def _render_top_strip(fb, week_day: int, month: int, day: int, battery_voltage: 
     if fill_w > 0:
         fb.fill_rect(bar_x + 1, bar_y + 1, fill_w, BATT_BAR_H - 2, BLACK)
 
+    # --- Stale-data indicator — "X" just left of battery ---
+    if stale_since_hour is not None:
+        _write_text(fb, font_small, "X", x=bar_x - 14, y=text_y)
+
 
 def _render_separators(fb):
     """Draw the three structural 1 px separator lines."""
@@ -180,15 +189,20 @@ def _render_separators(fb):
     fb.hline(0, MEETINGS_Y - 1, DISPLAY_W, BLACK)        # above meetings
 
 
-def _render_weather(fb, server_data: dict):
+def _render_weather(fb, server_data: dict, stale_since_hour: int = None):
     """Weather zone: two rows (now / +1h).  Zone: x=100-199, y=18-98."""
     weather_now = server_data.get("weather_now", {})
     weather_1h = server_data.get("weather_1h", {})
 
-    # Row tops are chosen so both rows fit comfortably in the 80 px zone
-    # with ~4 px top padding and ~4 px between rows.
-    _render_weather_row(fb, weather_now, label="now", row_top=34)
-    _render_weather_row(fb, weather_1h,  label="+1h", row_top=80)
+    if stale_since_hour is not None:
+        label_now = "{}h".format(stale_since_hour)
+        label_1h  = "{}h".format((stale_since_hour + 1) % 24)
+    else:
+        label_now = "now"
+        label_1h  = "+1h"
+
+    _render_weather_row(fb, weather_now, label=label_now, row_top=34)
+    _render_weather_row(fb, weather_1h,  label=label_1h,  row_top=80)
 
 
 def _render_weather_row(fb, weather: dict, label: str, row_top: int):
@@ -202,7 +216,7 @@ def _render_weather_row(fb, weather: dict, label: str, row_top: int):
     temp = weather.get("temp")
     condition = weather.get("condition", "")
 
-    # Icon (20x20 bitmap, top-left at (WEATHER_ICON_X, row_top))
+    # Icon (28x28 bitmap, top-left at (WEATHER_ICON_X, row_top))
     icon_mod = _condition_to_icon(condition)
     _blit_icon(fb, icon_mod, x=_WEATHER_ICON_X, y=row_top)
 

@@ -17,6 +17,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 TTF_REGULAR = REPO_ROOT / "assets" / "FiraSans-Regular.ttf"
+TTF_ZEN_DOTS = REPO_ROOT / "font_previews" / "fonts" / "ZenDots-Regular.ttf"
 FONT_TO_PY = REPO_ROOT / "scripts" / "font_to_py.py"
 OUTPUT_DIR = REPO_ROOT / "new_src" / "src" / "assets" / "fonts"
 
@@ -48,12 +49,16 @@ _SYMBOL_CHAR_SET = (
     + "\u25d5"   # ◕ duration three-quarter-circle (45 min)
 )
 
+# Clock-face digits only — keeps the large font file small.
+_CLOCK_CHAR_SET = " 0123456789"
+
 # (output_stem, size_px, ttf_path, extra_flags)
 # Add new entries here as needed.
 FONTS = [
-    ("fira_sans_regular_14", 14, TTF_REGULAR,    ["-c", _FIRA_CHAR_SET]),
-    ("fira_sans_regular_16", 16, TTF_REGULAR,    ["-c", _FIRA_CHAR_SET]),
-    ("fira_sans_regular_20", 20, TTF_REGULAR,    ["-c", _FIRA_CHAR_SET]),
+    ("fira_sans_regular_14", 14, TTF_REGULAR,     ["-c", _FIRA_CHAR_SET]),
+    ("fira_sans_regular_16", 16, TTF_REGULAR,     ["-c", _FIRA_CHAR_SET]),
+    ("fira_sans_regular_20", 20, TTF_REGULAR,     ["-c", _FIRA_CHAR_SET]),
+    ("zen_dots_39",          39, TTF_ZEN_DOTS,    ["-c", _CLOCK_CHAR_SET]),
     ("symbols_14",           14, TTF_DEJAVU_SANS, ["-c", _SYMBOL_CHAR_SET]),
     ("symbols_16",           16, TTF_DEJAVU_SANS, ["-c", _SYMBOL_CHAR_SET]),
 ]

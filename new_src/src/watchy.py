@@ -5,7 +5,7 @@ import esp32
 import machine
 import micropython
 import time
-from renderer import render_all
+import json
 from utils import (
     hour_to_string,
     number_teen_to_string,
@@ -24,12 +24,10 @@ from constants import (
     BATT_ADC_PIN,
     WHITE,
     BLACK,
+    DUMMY_DATA,
 )
 
-import assets.fonts.fira_sans_bold_58 as fira_sans_bold_58
-import assets.fonts.fira_sans_regular_38 as fira_sans_regular_38
-import assets.fonts.fira_sans_regular_28 as fira_sans_regular_28
-
+_CACHE_FILE = "server_cache.json"
 
 DEBUG = False
 QUARTER_BOUNDARY_MINUTES = (0, 15, 30, 45)
@@ -49,10 +47,18 @@ class Watchy:
         rtc_mem = machine.RTC().memory()
         self._debug_flag = len(rtc_mem) > 0 and rtc_mem[0] == 0x01
         self.sleep_enabled = not DEBUG and not self._debug_flag
-        self._debug_exit_irq_armed = False
         self._last_battery_voltage = None
-        self._server_data = self._build_mock_server_data(hour=0, minute=0)
-        self._server_data_last_updated = None
+        self._force_sync = False
+
+        cached = self._cache_read()
+        if cached:
+            self._server_data = cached["data"]
+            self._server_data_last_updated = (cached["fetch_hour"], cached["fetch_minute"])
+            self._server_data_stale = True
+        else:
+            self._server_data = self._build_mock_server_data(hour=0, minute=0)
+            self._server_data_last_updated = None
+            self._server_data_stale = True
 
         self.display = Display()
         i2c = SoftI2C(sda=Pin(RTC_SDA_PIN), scl=Pin(RTC_SCL_PIN))
@@ -72,10 +78,23 @@ class Watchy:
 
         if self.sleep_enabled:
             machine.deepsleep()
-            return
+        else:
+            Pin(MENU_PIN, Pin.IN).irq(
+                handler=self._debug_button_irq, trigger=Pin.IRQ_RISING
+            )
+            while self._debug_flag:
+                time.sleep(0.5)
 
-        if self._debug_flag:
-            self.arm_debug_exit_irq()
+    def _debug_button_irq(self, pin):
+        pin.irq(handler=None)
+        micropython.schedule(self._exit_debug_mode, None)
+
+    def _exit_debug_mode(self, _arg):
+        machine.RTC().memory(b'\x00')
+        self._debug_flag = False
+        self._display_status_message("debug mode off")
+        time.sleep(1.5)
+        machine.deepsleep()
 
     def init_interrupts(self):
         esp32.wake_on_ext0(Pin(RTC_INT_PIN, Pin.IN), esp32.WAKEUP_ALL_LOW)
@@ -100,23 +119,51 @@ class Watchy:
 
     def handle_pin_wake(self):
         print("PIN wake")
-        if Pin(MENU_PIN, Pin.IN).value() != 1:
-            return
+        menu = Pin(MENU_PIN, Pin.IN).value() == 1
+        back = Pin(BACK_PIN, Pin.IN).value() == 1
+
+        if menu and back:
+            self._handle_pairing()
+        elif menu:
+            self._handle_debug_toggle()
+        elif back:
+            self._force_sync = True
+
+    def _handle_pairing(self):
+        print("MENU+BACK held — entering pairing mode")
+        self._display_status_message("pairing mode")
+
+        import gc
+        gc.collect()
+        from ble_client import BLEClient
+        client = BLEClient()
+        success = client.enter_pairing_mode()
+        if not success:
+            client.disconnect()
+
+        if success:
+            self._display_status_message("paired")
+        else:
+            self._display_status_message("pairing failed")
+        time.sleep(1.5)
+
+    def _handle_debug_toggle(self):
         self._debug_flag = not self._debug_flag
-        machine.RTC().memory(b"\x01" if self._debug_flag else b"\x00")
+        machine.RTC().memory(b'\x01' if self._debug_flag else b'\x00')
         self.sleep_enabled = not DEBUG and not self._debug_flag
-        self.display_debug_message(self._debug_flag)
+        label = "debug mode on" if self._debug_flag else "debug mode off"
+        self._display_status_message(label)
         time.sleep(1.5)
 
     def update(self, now: tuple):
         (_, month, day, _, hour, minute, _, _) = now
         self.update_battery()
 
-        is_quarter_boundary = self.is_quarter_boundary(minute)
-        if is_quarter_boundary:
+        should_sync = self.is_quarter_boundary(minute) or self._force_sync
+        self._force_sync = False
+
+        if should_sync:
             self.update_server_data(hour, minute)
-            if hour == 1 and minute == 30:
-                self.maybe_sync_ntp()
 
         self.render_display(
             now=now,
@@ -129,19 +176,62 @@ class Watchy:
         print("battery: {:.2f}v".format(self._last_battery_voltage))
 
     def update_server_data(self, hour: int, minute: int):
-        # TODO: replace mock payload with real server fetch + cache write.
-        self._server_data = self._build_mock_server_data(hour=hour, minute=minute)
-        self._server_data_last_updated = (hour, minute)
-        print("mock server_data refreshed at {:02d}:{:02d}".format(hour, minute))
+        if DUMMY_DATA:
+            self._server_data = self._build_mock_server_data(hour=hour, minute=minute)
+            self._server_data_last_updated = (hour, minute)
+            self._server_data_stale = False
+            print("dummy server_data at {:02d}:{:02d}".format(hour, minute))
+            return
+
+        try:
+            import gc
+            gc.collect()
+            from ble_client import BLEClient
+            client = BLEClient()
+            if client.scan_and_connect():
+                result = client.request_sync()
+                client.disconnect()
+                if result:
+                    self._server_data = result["data"]
+                    self._server_data_last_updated = (hour, minute)
+                    self._server_data_stale = False
+                    if result["epoch"] is not None:
+                        self._apply_time_sync(result["epoch"])
+                    self._cache_write(result["data"], hour, minute)
+                    print("BLE sync OK at {:02d}:{:02d}".format(hour, minute))
+                    return
+            else:
+                client.disconnect()
+        except Exception as e:
+            print("BLE sync failed:", e)
+
+        self._server_data_stale = True
+        print("BLE sync failed — data is stale")
+
+    def _apply_time_sync(self, epoch: int):
+        """Adjust the RTC from a UTC epoch received over BLE."""
+        utc_offset = self._server_data.get("utc_offset", 0)
+        local_epoch = epoch + utc_offset * 3600
+        tm = time.gmtime(local_epoch)
+        # tm: (year, month, mday, hour, minute, second, weekday, yearday)
+        self.rtc.set_datetime((tm[0], tm[1], tm[2], tm[6] + 1, tm[3], tm[4], tm[5], 0))
+        print("RTC synced from BLE epoch={} offset={}".format(epoch, utc_offset))
 
     def maybe_sync_ntp(self):
-        # TODO: sync RTC from NTP once per day (1:30 AM).
-        print("TODO maybe_sync_ntp")
+        """Manual NTP sync — kept as fallback, not called automatically."""
+        print("TODO maybe_sync_ntp (manual trigger only)")
 
     def render_display(self, now: tuple, server_data: dict, partial_refresh: bool):
+        from renderer import render_all
+
         self._debug_log_render_payload(server_data, partial_refresh)
 
         (_, month, day, week_day, hour, minute, _, _) = now
+
+        stale_since_hour = None
+        if self._server_data_stale and self._server_data_last_updated:
+            stale_since_hour = self._server_data_last_updated[0]
+
         render_all(
             self.display.framebuf,
             hour=hour,
@@ -151,6 +241,7 @@ class Watchy:
             day=day,
             battery_voltage=self._last_battery_voltage or 0.0,
             server_data=server_data,
+            stale_since_hour=stale_since_hour,
         )
         self.display.update(partial=partial_refresh)
 
@@ -170,24 +261,19 @@ class Watchy:
                 return candidate
         return WAKE_MINUTES[0]
 
-    def arm_debug_exit_irq(self):
-        if self._debug_exit_irq_armed:
-            return
-        Pin(MENU_PIN, Pin.IN).irq(
-            handler=self._debug_button_irq, trigger=Pin.IRQ_RISING
-        )
-        self._debug_exit_irq_armed = True
-
     def display_prose_watchface(self, partial_refresh: bool):
+        import assets.fonts.fira_sans_regular_28 as fira_sans_regular_28
+        import assets.fonts.fira_sans_regular_20 as fira_sans_regular_20
+        import assets.fonts.fira_sans_regular_14 as fira_sans_regular_14
         self.display.framebuf.fill(WHITE)
         (_, month, day, week_day, hours, minutes, _, _) = self.rtc.datetime()
 
         self.display.display_text(
-            hour_to_string(hours), 10, 15, fira_sans_bold_58, WHITE, BLACK
+            hour_to_string(hours), 10, 15, fira_sans_regular_28, WHITE, BLACK
         )
 
         display_minutes_1 = lambda text: self.display.display_text(
-            text, 10, 80, fira_sans_regular_38, WHITE, BLACK
+            text, 10, 60, fira_sans_regular_20, WHITE, BLACK
         )
         if minutes == 0:
             display_minutes_1("o'clock")
@@ -199,7 +285,7 @@ class Watchy:
             minutes_tens_str, minutes_ones_str = number_tens_to_string(minutes)
             display_minutes_1(minutes_tens_str)
             self.display.display_text(
-                minutes_ones_str, 10, 115, fira_sans_regular_38, WHITE, BLACK
+                minutes_ones_str, 10, 85, fira_sans_regular_20, WHITE, BLACK
             )
 
         week_day_str = week_day_to_short_string(week_day)
@@ -208,33 +294,35 @@ class Watchy:
             f"{week_day_str}, {day} {month_str}",
             10,
             160,
-            fira_sans_regular_28,
+            fira_sans_regular_14,
             WHITE,
             BLACK,
         )
         self.display.update(partial=partial_refresh)
 
-    def display_debug_message(self, on: bool):
+    def _display_status_message(self, label: str):
+        import assets.fonts.fira_sans_regular_14 as fira_sans_regular_14
         self.display.framebuf.fill(WHITE)
-        label = "debug mode on" if on else "debug mode off"
-        self.display.display_text(label, 10, 80, fira_sans_regular_28, WHITE, BLACK)
+        self.display.display_text(label, 10, 80, fira_sans_regular_14, WHITE, BLACK)
         self.display.update()
-
-    def _debug_button_irq(self, pin):
-        pin.irq(handler=None)
-        self._debug_exit_irq_armed = False
-        micropython.schedule(self._exit_debug_mode, None)
-
-    def _exit_debug_mode(self, _arg):
-        machine.RTC().memory(b"\x00")
-        self._debug_flag = False
-        self.sleep_enabled = not DEBUG
-        self.display_debug_message(False)
-        time.sleep(1.5)
-        machine.deepsleep()
 
     def get_battery_voltage(self) -> float:
         return self.adc.read_uv() / 1000 * 2
+
+    def _cache_write(self, data: dict, hour: int, minute: int):
+        try:
+            with open(_CACHE_FILE, "w") as f:
+                json.dump({"data": data, "fetch_hour": hour, "fetch_minute": minute}, f)
+        except OSError as e:
+            print("cache write failed:", e)
+
+    @staticmethod
+    def _cache_read():
+        try:
+            with open(_CACHE_FILE, "r") as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return None
 
     def _build_mock_server_data(self, hour=None, minute=None) -> dict:
         if hour is None or minute is None:
@@ -246,7 +334,7 @@ class Watchy:
         return {
             "utc_offset": -5,
             "weather_now": {"temp": 70 + (hour % 4), "condition": "sunny"},
-            "weather_1h": {"temp": 66 + (next_hour % 4), "condition": "cloudy"},
+            "weather_1h": {"temp": 66 + (next_hour % 4), "condition": "cloudy_thin"},
             "meetings": [
                 {
                     "start_hour": hour,

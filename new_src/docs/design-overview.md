@@ -20,9 +20,9 @@ updates the ESP32 is in deep sleep, drawing near-zero current.
 | Display | 200×200 px, 1-bit monochrome (black/white), e-ink |
 | MCU | ESP32 (single core used), MicroPython |
 | RTC | BM8563 via I2C, supports timed alarm wakeup |
-| Connectivity | WiFi 2.4 GHz (high power draw — use sparingly) |
+| Connectivity | BLE (primary — data sync with laptop); WiFi 2.4 GHz (debug/webrepl only) |
 | Battery | LiPo, voltage readable via ADC on pin 33 |
-| Buttons | 4 (menu, back, up, down) — wake from deep sleep |
+| Buttons | 4 — MENU (debug toggle), BACK (BLE sync / pairing), UP, DOWN — all wake from deep sleep |
 | RAM | ~520 KB SRAM, ~4 MB flash; MicroPython overhead significant |
 
 ## Design Principles
@@ -32,14 +32,16 @@ updates the ESP32 is in deep sleep, drawing near-zero current.
    contrast, bold visual hierarchy, and glanceability matter more than
    pixel-perfect detail.
 
-2. **Power budget drives architecture.** WiFi is the dominant power cost. Not
-   every display refresh needs a network call. Data sources are fetched on
-   independent schedules and cached between fetches (see `update-strategy.md`).
+2. **Power budget drives architecture.** BLE is used for data sync (much
+   lower power than WiFi). Not every display refresh needs a radio call.
+   Data is fetched on quarter-boundary wakes and cached between fetches
+   (see `update-strategy.md`).
 
-3. **Graceful degradation.** WiFi may be unavailable, APIs may fail, the
-   calendar endpoint may be down. The display must always render *something*
-   useful — stale cached data with an indicator is better than a blank quadrant
-   or a traceback.
+3. **Graceful degradation.** The laptop may be asleep, out of range, or
+   the BLE service may not be running. The display must always render
+   *something* useful — stale cached data with an "X" indicator and
+   hour-based weather labels is better than a blank quadrant or a
+   traceback.
 
 4. **Look nice.** This is a thing you wear and glance at dozens of times a day.
    Visual quality is a first-class requirement, not an afterthought. Whitespace,
@@ -78,10 +80,20 @@ pixel-level detail):
   conveys: time until start, duration, and meeting type/nature. The exact
   visual treatment is still open (see `display-layout.md § Meetings`).
 
-## Server Endpoint
+## Data Transport — BLE
 
-The watch talks to **one server endpoint** that returns a single JSON payload
-containing everything the watch needs: meetings, weather, and timezone info.
+The watch syncs data over **BLE** with a laptop running a GATT peripheral
+service. The watch is the BLE Central (client); the laptop is the Peripheral
+(server). The link is encrypted via LE Secure Connections bonding.
+
+On each quarter-boundary wake (or manual BACK-button press), the watch:
+
+1. Connects to the bonded laptop.
+2. Sends a SYNC_REQUEST.
+3. Receives a TIME_SYNC (UTC epoch) + SYNC_RESPONSE (chunked JSON).
+4. Sends an ACK and disconnects.
+
+The JSON payload schema is unchanged:
 
 ```json
 {
@@ -96,36 +108,33 @@ containing everything the watch needs: meetings, weather, and timezone info.
 }
 ```
 
-The server is responsible for talking to Google Calendar, weather APIs, handling
-OAuth, expanding recurring events, resolving timezones, and trimming the
-response down to only what the watch needs. The watch just hits one URL, parses
-a small JSON blob, and caches the result.
+The laptop service is responsible for talking to Google Calendar, weather
+APIs, handling OAuth, expanding recurring events, resolving timezones, and
+trimming the response. The watch just sends a BLE request, parses the JSON
+response, and caches the result.
 
-**For development:** we don't need the server yet. We use a **mock JSON file**
-(stored on-device or served by a trivial local HTTP server) with the same
-schema. This lets us iterate on the renderer and layout independently, then
-build the real server later. The mock also serves as the contract / integration
-test: if the mock renders correctly, the real server just needs to produce the
-same shape.
+**For development:** set `DUMMY_DATA = True` in `constants.py` to use
+hardcoded mock data without touching BLE.
 
-See `update-strategy.md` for when/how this endpoint is called.
+See `ble-protocol.md` for the full wire-level specification and
+`update-strategy.md` for when/how syncs happen.
 
-## Key Files (planned)
+## Key Files
 
 | File | Responsibility | Status |
 |---|---|---|
 | `main.py` | Entry point — instantiate Watchy and run | Exists |
-| `watchy.py` | Core orchestrator — wake, decide what to update, sleep | Exists |
-| `renderer.py` | Drawing logic — layout zones, render each zone | **Done** |
+| `watchy.py` | Core orchestrator — wake, button handling, BLE sync, cache, sleep | Exists |
+| `renderer.py` | Drawing logic — layout zones, render each zone, stale indicators | **Done** |
 | `clock_ring.py` | Ring clock rendering (arc bitmaps + hour number) | **Done** |
-| `data.py` | Server fetch + caching layer (one endpoint, one JSON blob) | Not yet |
-| `constants.py` | Pin assignments, colors, layout constants | Exists |
-| `secrets.py` | WiFi credentials, server URL | Exists (example) |
+| `ble_client.py` | BLE Central client — scan, connect, pair, request sync, disconnect | **Done** |
+| `ble_protocol.py` | Chunked message framing, message types, reassembly | **Done** |
+| `constants.py` | Pin assignments, colors, layout constants, BLE UUIDs/timeouts | Exists |
+| `secrets.py` | WiFi credentials (debug only) | Exists (example) |
 | `boot.py` | MicroPython boot (WiFi for debug/webrepl if flagged) | Exists |
 
-This isn't final — the module boundaries may shift — but the separation of
-"what to update" (watchy.py), "how to draw" (renderer), and "how to fetch"
-(data) should hold.
+The separation is: "what to update" (`watchy.py`), "how to draw"
+(`renderer.py`), "how to communicate" (`ble_client.py` + `ble_protocol.py`).
 
 ## Development Order
 
@@ -135,21 +144,23 @@ Implementation should follow this sequence:
    hardware. Transparency keying, bitmap format, and visual quality all
    confirmed. `clock_ring.py` is the production implementation.
 
-2. **Static layout with mock data.** Render all four zones with hardcoded /
-   mock data. Tune pixel positions, font sizes, whitespace. No WiFi, no
-   server, no deep sleep — just get the screen looking right.
-   - **Top half done** (top strip + clock + weather zone). `renderer.py` is
-     live; `test_top_half.py` can be used to evaluate layout on hardware.
-   - **Bottom half (meetings) still pending.**
+2. ~~**Static layout with mock data.**~~ **Done.** All four zones rendered with
+   mock data. `renderer.py` is live; `test_top_half.py` and
+   `test_bottom_half.py` can be used to evaluate layout on hardware.
 
 3. **Wake / sleep cycle.** Wire up the BM8563 alarm-driven wake schedule and
    deep sleep. Verify the 8-wakes-per-hour cadence works reliably.
 
-4. **Data fetching.** Connect to WiFi, hit the server endpoint, parse and cache
-   the response. Integrate with the renderer.
+4. ~~**BLE data transport (watch side).**~~ **Done.** `ble_client.py` and
+   `ble_protocol.py` implement the watch-side Central client with chunked
+   message protocol, bonding, and cache. `watchy.py` integrates BLE sync
+   into the wake cycle with BACK button for manual sync and pairing.
+   Stale-data rendering (X indicator, hour-based weather labels) is
+   implemented in `renderer.py`.
 
-5. **Server.** Build the real endpoint (calendar + weather + timezone). The mock
-   JSON from step 2 is the spec.
+5. **Laptop BLE service.** Build the GATT peripheral on macOS/Linux that
+   responds to SYNC_REQUEST with weather + meetings + time. The
+   `ble-protocol.md` spec is the contract.
 
 ## Font Pipeline
 

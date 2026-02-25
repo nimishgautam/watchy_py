@@ -60,6 +60,15 @@ class BM8563:
         self.i2c.writeto_mem(self.addr, DATETIME_REG, self._timebuf)
         return True
 
+    def set_datetime(self, datetime):
+        """Set RTC datetime.
+
+        Args:
+            datetime: (year, month, day, weekday, hour, minute, second, subsecond)
+                      where weekday is 1-7 (Mon-Sun).
+        """
+        self.datetime(datetime)
+
     def set_alarm_next_minute(self):
         """Configure minute alarm to fire on next minute boundary."""
         _, _, _, _, _, minute, _, _ = self.datetime()

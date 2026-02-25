@@ -1,4 +1,5 @@
 from micropython import const
+import bluetooth
 
 WHITE = 1
 BLACK = 0
@@ -53,3 +54,23 @@ BATT_MAX_V = 4.2
 BATT_MIN_V = 3.0
 BATT_BAR_W = const(30)
 BATT_BAR_H = const(6)
+
+# ---------------------------------------------------------------------------
+# BLE
+# ---------------------------------------------------------------------------
+
+# Custom 128-bit UUIDs for the Watchy sync service.
+# The laptop peripheral advertises BLE_SERVICE_UUID.
+# TX = watch writes requests to this characteristic (write-with-response).
+# RX = laptop sends responses via notifications on this characteristic.
+BLE_SERVICE_UUID = bluetooth.UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+BLE_TX_CHAR_UUID = bluetooth.UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567891")
+BLE_RX_CHAR_UUID = bluetooth.UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567892")
+
+BLE_SCAN_TIMEOUT_MS    = const(8000)
+BLE_CONNECT_TIMEOUT_MS = const(5000)
+BLE_SYNC_TIMEOUT_MS    = const(10000)
+BLE_PAIRING_TIMEOUT_MS = const(30000)
+
+# Set True to use mock data without BLE (for REPL / dev convenience).
+DUMMY_DATA = False

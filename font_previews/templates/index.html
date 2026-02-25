@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Watchy Font Preview</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --surface2: #0f3460;
+    --accent: #e94560;
+    --text: #eee;
+    --text-dim: #999;
+    --border: #333;
+    --input-bg: #1e2a45;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    min-height: 100vh;
+  }
+
+  /* --- Left panel (controls) --- */
+  .controls {
+    width: 340px;
+    min-width: 340px;
+    background: var(--surface);
+    padding: 20px;
+    overflow-y: auto;
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .controls h1 {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .controls h2 {
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .section {
+    background: var(--surface2);
+    border-radius: 8px;
+    padding: 14px;
+  }
+  .font-role {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .font-role:last-child { margin-bottom: 0; }
+  .font-role label {
+    width: 100px;
+    font-size: 12px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+  .font-role select, .font-role input[type=number] {
+    background: var(--input-bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-size: 13px;
+  }
+  .font-role select { flex: 1; min-width: 0; }
+  .font-role input[type=number] { width: 54px; text-align: center; }
+
+  .data-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 12px;
+  }
+  .data-grid label {
+    font-size: 12px;
+    color: var(--text-dim);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .data-grid input, .data-grid select {
+    background: var(--input-bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-size: 13px;
+    width: 100%;
+  }
+
+  /* --- Right panel (preview) --- */
+  .preview {
+    flex: 1;
+    padding: 30px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 24px;
+    overflow-y: auto;
+  }
+  .preview h2 {
+    font-size: 14px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--text-dim);
+    align-self: flex-start;
+  }
+  .preview-row {
+    display: flex;
+    gap: 30px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .preview-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+  .preview-box span {
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .preview-box img {
+    image-rendering: pixelated;
+    border: 1px solid var(--border);
+    background: #fff;
+  }
+  .specimen-box {
+    width: 100%;
+    max-width: 900px;
+  }
+  .specimen-box img {
+    image-rendering: pixelated;
+    border: 1px solid var(--border);
+    background: #fff;
+    max-width: 100%;
+    height: auto;
+  }
+  .status {
+    font-size: 11px;
+    color: var(--text-dim);
+    min-height: 16px;
+  }
+</style>
+</head>
+<body>
+
+<div class="controls">
+  <div>
+    <h1>Watchy Font Preview</h1>
+    <p class="status" id="status">Loading fonts...</p>
+  </div>
+
+  <div class="section">
+    <h2>Fonts</h2>
+    <div class="font-role">
+      <label>Clock Hour</label>
+      <select id="font-hour-ttf"></select>
+      <input type="number" id="font-hour-size" value="28" min="6" max="80">
+    </div>
+    <div class="font-role">
+      <label>Temperature</label>
+      <select id="font-temp-ttf"></select>
+      <input type="number" id="font-temp-size" value="20" min="6" max="80">
+    </div>
+    <div class="font-role">
+      <label>Small Text</label>
+      <select id="font-small-ttf"></select>
+      <input type="number" id="font-small-size" value="14" min="6" max="80">
+    </div>
+    <div class="font-role">
+      <label>Meeting Time</label>
+      <select id="font-mt-ttf"></select>
+      <input type="number" id="font-mt-size" value="16" min="6" max="80">
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Mock Data</h2>
+    <div class="data-grid">
+      <label>Hour <input type="number" id="data-hour" value="10" min="0" max="23"></label>
+      <label>Minute <input type="number" id="data-minute" value="25" min="0" max="59"></label>
+      <label>Day <input type="number" id="data-day" value="24" min="1" max="31"></label>
+      <label>Month <input type="number" id="data-month" value="2" min="1" max="12"></label>
+      <label>Weekday
+        <select id="data-weekday">
+          <option value="1">Mon</option>
+          <option value="2">Tue</option>
+          <option value="3" selected>Wed</option>
+          <option value="4">Thu</option>
+          <option value="5">Fri</option>
+          <option value="6">Sat</option>
+          <option value="7">Sun</option>
+        </select>
+      </label>
+      <label>Battery V <input type="number" id="data-battery" value="3.8" min="3.0" max="4.2" step="0.1"></label>
+      <label>Temp Now <input type="number" id="data-temp-now" value="72"></label>
+      <label>Temp +1h <input type="number" id="data-temp-1h" value="65"></label>
+      <label>Cond Now
+        <select id="data-cond-now">
+          <option value="sunny" selected>sunny</option>
+          <option value="cloudy_light">cloudy_light</option>
+          <option value="cloudy_thin">cloudy_thin</option>
+          <option value="cloudy_thick">cloudy_thick</option>
+          <option value="rain">rain</option>
+          <option value="sunny_rain">sunny_rain</option>
+          <option value="windy">windy</option>
+          <option value="windy_rain">windy_rain</option>
+          <option value="snow">snow</option>
+          <option value="severe_weather">severe_weather</option>
+          <option value="night">night</option>
+          <option value="night_rain">night_rain</option>
+          <option value="night_snow">night_snow</option>
+          <option value="snow_storm">snow_storm</option>
+        </select>
+      </label>
+      <label>Cond +1h
+        <select id="data-cond-1h">
+          <option value="sunny">sunny</option>
+          <option value="cloudy_light">cloudy_light</option>
+          <option value="cloudy_thin" selected>cloudy_thin</option>
+          <option value="cloudy_thick">cloudy_thick</option>
+          <option value="rain">rain</option>
+          <option value="sunny_rain">sunny_rain</option>
+          <option value="windy">windy</option>
+          <option value="windy_rain">windy_rain</option>
+          <option value="snow">snow</option>
+          <option value="severe_weather">severe_weather</option>
+          <option value="night">night</option>
+          <option value="night_rain">night_rain</option>
+          <option value="night_snow">night_snow</option>
+          <option value="snow_storm">snow_storm</option>
+        </select>
+      </label>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Specimen</h2>
+    <div class="data-grid">
+      <label>Specimen Role
+        <select id="specimen-role">
+          <option value="hour">Clock Hour</option>
+          <option value="temp">Temperature</option>
+          <option value="small" selected>Small Text</option>
+          <option value="meeting_time">Meeting Time</option>
+        </select>
+      </label>
+      <label>Zoom
+        <input type="number" id="specimen-scale" value="4" min="1" max="12">
+      </label>
+    </div>
+  </div>
+</div>
+
+<div class="preview">
+  <h2>Watch Face</h2>
+  <div class="preview-row">
+    <div class="preview-box">
+      <span>1x (200 x 200)</span>
+      <img id="preview-1x" width="200" height="200" alt="1x preview">
+    </div>
+    <div class="preview-box">
+      <span>3x (600 x 600)</span>
+      <img id="preview-3x" width="600" height="600" alt="3x preview">
+    </div>
+  </div>
+
+  <h2>Character Specimen</h2>
+  <div class="specimen-box">
+    <img id="specimen-img" alt="Character specimen">
+  </div>
+</div>
+
+<script>
+(function() {
+  let fonts = [];
+  let renderTimer = null;
+  const DEBOUNCE_MS = 400;
+
+  const $ = id => document.getElementById(id);
+
+  async function loadFonts() {
+    try {
+      const res = await fetch("/fonts");
+      fonts = await res.json();
+      populateSelects();
+      $("status").textContent = `${fonts.length} font(s) available`;
+      doRender();
+    } catch (e) {
+      $("status").textContent = "Error loading fonts: " + e.message;
+    }
+  }
+
+  function populateSelects() {
+    const selects = ["font-hour-ttf", "font-temp-ttf", "font-small-ttf", "font-mt-ttf"];
+    for (const id of selects) {
+      const sel = $(id);
+      sel.innerHTML = "";
+      for (const f of fonts) {
+        const opt = document.createElement("option");
+        opt.value = f.path;
+        opt.textContent = f.name;
+        sel.appendChild(opt);
+      }
+    }
+  }
+
+  function gatherConfig() {
+    return {
+      fonts: {
+        hour:         { ttf: $("font-hour-ttf").value,  size: +$("font-hour-size").value },
+        temp:         { ttf: $("font-temp-ttf").value,   size: +$("font-temp-size").value },
+        small:        { ttf: $("font-small-ttf").value,  size: +$("font-small-size").value },
+        meeting_time: { ttf: $("font-mt-ttf").value,     size: +$("font-mt-size").value },
+      },
+      data: {
+        hour: +$("data-hour").value,
+        minute: +$("data-minute").value,
+        week_day: +$("data-weekday").value,
+        month: +$("data-month").value,
+        day: +$("data-day").value,
+        battery_v: +$("data-battery").value,
+        weather_now: { temp: +$("data-temp-now").value, condition: $("data-cond-now").value },
+        weather_1h:  { temp: +$("data-temp-1h").value,  condition: $("data-cond-1h").value },
+        meetings: [
+          { start_hour: 10, start_minute: 5,  duration_min: 30, title: "Team standup",  type: "live" },
+          { start_hour: 10, start_minute: 30, duration_min: 15, title: "Quick sync",    type: "recurring" },
+          { start_hour: 10, start_minute: 45, duration_min: 45, title: "Client call",   type: "call" },
+        ],
+      },
+    };
+  }
+
+  function specimenConfig() {
+    const role = $("specimen-role").value;
+    const cfg = gatherConfig();
+    const fc = cfg.fonts[role];
+    return { ttf: fc.ttf, size: fc.size, scale: +$("specimen-scale").value };
+  }
+
+  async function doRender() {
+    const cfg = gatherConfig();
+    $("status").textContent = "Rendering...";
+    try {
+      // Render 1x
+      const r1 = await fetch("/render", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({...cfg, scale: 1}),
+      });
+      const b1 = await r1.blob();
+      $("preview-1x").src = URL.createObjectURL(b1);
+
+      // Render 3x
+      const r3 = await fetch("/render", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({...cfg, scale: 3}),
+      });
+      const b3 = await r3.blob();
+      $("preview-3x").src = URL.createObjectURL(b3);
+
+      // Specimen
+      const sc = specimenConfig();
+      const rs = await fetch("/specimen", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(sc),
+      });
+      const bs = await rs.blob();
+      $("specimen-img").src = URL.createObjectURL(bs);
+
+      $("status").textContent = "Done";
+    } catch (e) {
+      $("status").textContent = "Render error: " + e.message;
+    }
+  }
+
+  function scheduleRender() {
+    clearTimeout(renderTimer);
+    renderTimer = setTimeout(doRender, DEBOUNCE_MS);
+  }
+
+  // Attach change listeners to all inputs and selects.
+  document.querySelectorAll(".controls input, .controls select").forEach(el => {
+    el.addEventListener("input", scheduleRender);
+    el.addEventListener("change", scheduleRender);
+  });
+
+  loadFonts();
+})();
+</script>
+</body>
+</html>
