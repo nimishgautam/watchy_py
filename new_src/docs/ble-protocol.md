@@ -31,6 +31,17 @@ dedicated pairing-mode flow triggered by a long press of the BACK button.
 The bond is persisted on both sides so subsequent connections are
 encrypted automatically.
 
+### Shared secret (optional)
+
+Both sides may configure `AUTH_TOKEN` in their respective `secrets.py`
+files.  If the laptop has a non-empty `AUTH_TOKEN`, the watch must send
+it as the SYNC_REQUEST payload (UTF-8 bytes).  If the payload does not
+match, the laptop sends `MSG_ERROR` with code `ERR_AUTH_FAILED` (0x04)
+and does not respond with data.  If either side omits or leaves
+`AUTH_TOKEN` empty, auth is skipped for backward compatibility.
+
+**Recommendation:** Set `AUTH_TOKEN` in both, or in neither.
+
 ## Message Frame Format
 
 All messages in both directions use the same 4-byte header:
@@ -53,7 +64,7 @@ accept the largest MTU it can.
 
 | Code | Name | Direction | Payload |
 |---|---|---|---|
-| `0x01` | SYNC_REQUEST | watch → laptop | Empty (no payload) |
+| `0x01` | SYNC_REQUEST | watch → laptop | Optional: UTF-8 AUTH_TOKEN bytes |
 | `0x02` | SYNC_RESPONSE | laptop → watch | Chunked UTF-8 JSON (see schema below) |
 | `0x03` | TIME_SYNC | laptop → watch | 4 bytes: uint32 LE — current UTC epoch |
 | `0x10` | EXTRA | laptop → watch | Extensible, format TBD |
@@ -68,6 +79,7 @@ accept the largest MTU it can.
 | `0x01` | Bad frame (malformed header) |
 | `0x02` | Timeout |
 | `0x03` | Not ready (data unavailable) |
+| `0x04` | Auth failed (token missing or invalid) |
 
 ## Sync Flow
 
@@ -185,9 +197,10 @@ The laptop service must:
 2. **Accept bonding** and persist the bond so reconnections are
    encrypted.
 3. **Handle SYNC_REQUEST** by:
-   a. Gathering current weather, upcoming meetings, and UTC offset.
-   b. Sending TIME_SYNC with the current UTC epoch.
-   c. Sending the `server_data` JSON as a chunked SYNC_RESPONSE.
+   a. If `AUTH_TOKEN` is configured, validating the payload matches (else send `ERR_AUTH_FAILED` and abort).
+   b. Gathering current weather, upcoming meetings, and UTC offset.
+   c. Sending TIME_SYNC with the current UTC epoch.
+   d. Sending the `server_data` JSON as a chunked SYNC_RESPONSE.
 4. **Accept ACK** to confirm the watch received the data.
 5. **Optionally send EXTRA** messages during the connection window.
 

@@ -75,6 +75,7 @@ class CalendarFetcher:
             token_cache_path=str(self._token_cache_path),
             hours_ahead=CALENDAR_HOURS_AHEAD,
             limit=CALENDAR_MEETING_LIMIT,
+            allow_device_flow=False,
         )
         # TODO: add google_calendar.get_meetings(secrets.GOOGLE_...) when implemented
         merged = calendar_merge.merge_meetings(

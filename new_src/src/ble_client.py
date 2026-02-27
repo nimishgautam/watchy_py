@@ -287,11 +287,16 @@ class BLEClient:
         return True
 
     def enter_pairing_mode(self, timeout_ms=None):
-        """Scan for the service, connect, and initiate bonding.
+        """Scan for the service, connect, initiate bonding, and request sync data.
 
-        Returns True if pairing succeeded and the bond was stored.
+        Clears any existing bond first so pairing always starts from a
+        clean state (avoids stale bond mismatches after laptop reboot etc).
+        Returns (True, sync_result) if pairing succeeded (sync_result may be None
+        if sync failed), or False if pairing failed.
         """
         pairing_timeout = timeout_ms or BLE_PAIRING_TIMEOUT_MS
+
+        self.clear_bond()
 
         self._scan_found_addr = None
         self._scan_done = False
@@ -322,14 +327,16 @@ class BLEClient:
             print("BLE: pairing connect timeout")
             return False
 
-        # Initiate pairing/bonding
-        print("BLE: initiating pairing")
-        self._ble.gap_pair(self._conn_handle)
-
-        if not self._wait_for("_encrypted", 10000):
-            print("BLE: encryption timeout")
-            self.disconnect()
-            return False
+        # Initiate pairing/bonding — skip if already encrypted (e.g. re-bond from stored keys)
+        if not self._encrypted:
+            print("BLE: initiating pairing")
+            self._ble.gap_pair(self._conn_handle)
+            if not self._wait_for("_encrypted", 10000):
+                print("BLE: encryption timeout")
+                self.disconnect()
+                return False
+        else:
+            print("BLE: already encrypted (re-bonded)")
 
         # Store bond
         self._bonded_peer = {
@@ -339,8 +346,27 @@ class BLEClient:
         self._save_bond()
         print("BLE: paired and bonded")
 
+        # Discover characteristics (may have completed during pairing)
+        if not self._chars_discovered:
+            self._service_discovered = False
+            self._ble.gattc_discover_services(self._conn_handle, BLE_SERVICE_UUID)
+            if not self._wait_for("_chars_discovered", 5000):
+                print("BLE: char discovery timeout after pairing")
+                self.disconnect()
+                return (True, None)  # Paired but no data
+
+        if self._tx_handle is None or self._rx_handle is None:
+            print("BLE: required characteristics not found after pairing")
+            self.disconnect()
+            return (True, None)
+
+        self._enable_notifications()
+
+        # Request sync to fetch data while still connected
+        result = self.request_sync()
+
         self.disconnect()
-        return True
+        return (True, result)
 
     def request_sync(self, timeout_ms=None):
         """Send SYNC_REQUEST, collect response messages.
@@ -359,8 +385,14 @@ class BLEClient:
         self._notify_buffer.clear()
         self._write_done = False
 
-        # Send SYNC_REQUEST
-        request = make_sync_request(seq=0)
+        # Send SYNC_REQUEST (with optional AUTH_TOKEN from secrets)
+        try:
+            import secrets
+            auth_token = getattr(secrets, "AUTH_TOKEN", "") or ""
+        except ImportError:
+            auth_token = ""
+        token_bytes = auth_token.encode("utf-8") if auth_token else b""
+        request = make_sync_request(seq=0, payload=token_bytes)
         self._ble.gattc_write(self._conn_handle, self._tx_handle, request, 1)
 
         if not self._wait_for("_write_done", 3000):

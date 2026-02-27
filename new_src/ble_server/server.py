@@ -24,6 +24,7 @@ from bless import (  # type: ignore[import-untyped]
 
 from .data_provider import DataProvider
 from .protocol import (
+    ERR_AUTH_FAILED,
     ERR_NOT_READY,
     MSG_ACK,
     MSG_ERROR,
@@ -137,6 +138,20 @@ class WatchyBLEServer:
 
         if msg_type == MSG_SYNC_REQUEST:
             log.info("SYNC_REQUEST received (seq=%d)", seq)
+            # Validate AUTH_TOKEN if server has one configured
+            try:
+                from . import secrets
+                expected = getattr(secrets, "AUTH_TOKEN", "") or ""
+            except ImportError:
+                expected = ""
+            if expected:
+                if payload != expected.encode("utf-8"):
+                    log.warning("Auth failed — token mismatch")
+                    err_frame = frame_header(MSG_ERROR, seq, 1, 0) + bytes(
+                        [ERR_AUTH_FAILED]
+                    )
+                    self._notify(err_frame)
+                    return
             if self._loop is not None:
                 self._loop.call_soon_threadsafe(
                     asyncio.ensure_future,

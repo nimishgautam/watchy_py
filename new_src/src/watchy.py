@@ -137,14 +137,22 @@ class Watchy:
         gc.collect()
         from ble_client import BLEClient
         client = BLEClient()
-        success = client.enter_pairing_mode()
-        if not success:
+        result = client.enter_pairing_mode()
+        if result is False:
             client.disconnect()
-
-        if success:
-            self._display_status_message("paired")
-        else:
             self._display_status_message("pairing failed")
+        else:
+            success, sync_result = result
+            if sync_result:
+                self._server_data = sync_result["data"]
+                now = self.rtc.datetime()
+                self._server_data_last_updated = (now[4], now[5])
+                self._server_data_stale = False
+                if sync_result.get("epoch") is not None:
+                    self._apply_time_sync(sync_result["epoch"])
+                self._cache_write(sync_result["data"], now[4], now[5])
+                print("BLE pairing+sync OK")
+            self._display_status_message("paired")
         time.sleep(1.5)
 
     def _handle_debug_toggle(self):

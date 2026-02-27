@@ -68,7 +68,7 @@ BLE_TX_CHAR_UUID = bluetooth.UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567891")
 BLE_RX_CHAR_UUID = bluetooth.UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567892")
 
 BLE_SCAN_TIMEOUT_MS    = const(8000)
-BLE_CONNECT_TIMEOUT_MS = const(5000)
+BLE_CONNECT_TIMEOUT_MS = const(30000)  # Higher for intermittent laptop responsiveness
 BLE_SYNC_TIMEOUT_MS    = const(10000)
 BLE_PAIRING_TIMEOUT_MS = const(30000)
 

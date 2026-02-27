@@ -31,6 +31,7 @@ ERR_UNKNOWN       = const(0x00)
 ERR_BAD_FRAME     = const(0x01)
 ERR_TIMEOUT       = const(0x02)
 ERR_NOT_READY     = const(0x03)
+ERR_AUTH_FAILED   = const(0x04)
 
 HEADER_SIZE = const(4)
 
@@ -75,9 +76,9 @@ def chunk_message(msg_type: int, payload: bytes, mtu: int, seq: int = 0) -> list
     return frames
 
 
-def make_sync_request(seq: int = 0) -> bytes:
-    """Build a single-frame SYNC_REQUEST (no payload)."""
-    return frame_header(MSG_SYNC_REQUEST, seq, 1, 0)
+def make_sync_request(seq: int = 0, payload: bytes = b"") -> bytes:
+    """Build SYNC_REQUEST frame. Optional payload (e.g. AUTH_TOKEN bytes)."""
+    return frame_header(MSG_SYNC_REQUEST, seq, 1, 0) + payload
 
 
 def make_ack(seq: int = 0) -> bytes:

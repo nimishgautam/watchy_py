@@ -48,10 +48,14 @@ def get_access_token(
     client_id: str,
     client_secret: str | None = None,
     token_cache_path: Path | str,
+    allow_device_flow: bool = True,
 ) -> str | None:
     """Acquire access token via device code flow (or silent refresh).
 
     Returns None on failure.
+
+    When allow_device_flow is False (e.g. headless/background services),
+    only uses cached tokens. No interactive device flow is attempted.
     """
     cache_path = Path(token_cache_path)
     cache = _load_token_cache(cache_path)
@@ -72,7 +76,14 @@ def get_access_token(
         if result:
             _save_token_cache(cache, cache_path)
             return result["access_token"]
-        # Fall through to device flow
+        # Fall through to device flow (or fail fast if not allowed)
+
+    if not allow_device_flow:
+        log.info(
+            "No valid Microsoft token in cache. Run 'python -m ble_server.sign_in' "
+            "to authenticate, then restart the BLE server."
+        )
+        return None
 
     flow = app.initiate_device_flow(scopes=SCOPES)
     if not flow:
@@ -189,6 +200,7 @@ def get_meetings(
     *,
     hours_ahead: int = 48,
     limit: int = 5,
+    allow_device_flow: bool = True,
 ) -> list[dict[str, Any]] | None:
     """Fetch upcoming meetings from Microsoft calendar.
 
@@ -199,6 +211,7 @@ def get_meetings(
         client_id=client_id,
         client_secret=client_secret,
         token_cache_path=token_cache_path,
+        allow_device_flow=allow_device_flow,
     )
     if not token:
         return None
