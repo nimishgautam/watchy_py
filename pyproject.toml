@@ -2,7 +2,7 @@
 name = "watchy"
 version = "0.1.0"
 description = "the code running on my Watchy"
-authors = ["Huey <hello@huey.xyz>"]
+authors = ["Huey <hello@huey.xyz>", "Nimish <nimishg@gmail.com>"]
 license = "MIT"
 readme = "README.md"
 
