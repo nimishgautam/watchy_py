@@ -117,6 +117,8 @@ def render_all(
     battery_voltage: float,
     server_data: dict,
     stale_since_hour: int = None,
+    has_valid_weather: bool = True,
+    data_is_fresh: bool = True,
 ):
     """Render the complete watch face into fb.
 
@@ -132,12 +134,16 @@ def render_all(
         stale_since_hour: None when data is fresh.  When stale, the hour
             at which the data was last fetched — used to show an "X"
             indicator and hour-based weather labels.
+        has_valid_weather: True if we have synced at least once (weather zone
+            drawn). False leaves weather zone blank.
+        data_is_fresh: True if data is from a recent sync. Used to decide
+            whether to show "No meetings" when the meetings list is empty.
     """
     fb.fill(WHITE)
     _render_top_strip(fb, week_day, month, day, battery_voltage, stale_since_hour)
     draw_clock(fb, hour, minute)
-    _render_weather(fb, server_data, stale_since_hour)
-    _render_meetings(fb, server_data, hour, minute)
+    _render_weather(fb, server_data, stale_since_hour, has_valid_weather)
+    _render_meetings(fb, server_data, hour, minute, data_is_fresh)
 
 
 # ---------------------------------------------------------------------------
@@ -189,8 +195,12 @@ def _render_separators(fb):
     fb.hline(0, MEETINGS_Y - 1, DISPLAY_W, BLACK)        # above meetings
 
 
-def _render_weather(fb, server_data: dict, stale_since_hour: int = None):
+def _render_weather(fb, server_data: dict, stale_since_hour: int = None,
+                    has_valid_weather: bool = True):
     """Weather zone: two rows (now / +1h).  Zone: x=100-199, y=18-98."""
+    if not has_valid_weather:
+        return
+
     weather_now = server_data.get("weather_now", {})
     weather_1h = server_data.get("weather_1h", {})
 
@@ -230,7 +240,8 @@ def _render_weather_row(fb, weather: dict, label: str, row_top: int):
     _write_text(fb, font_small, label, x=_WEATHER_LABEL_X, y=label_y)
 
 
-def _render_meetings(fb, server_data: dict, hour: int, minute: int):
+def _render_meetings(fb, server_data: dict, hour: int, minute: int,
+                    data_is_fresh: bool = True):
     """Meetings zone: upcoming calendar entries.  Zone: x=0-199, y=128-199.
 
     Each row shows: [duration glyph(s)] [time] [type glyph] [title]
@@ -263,11 +274,12 @@ def _render_meetings(fb, server_data: dict, hour: int, minute: int):
     zone_h = DISPLAY_H - MEETINGS_Y   # 72 px
 
     if not visible:
-        _write_text(
-            fb, font_small, "No meetings",
-            x=(DISPLAY_W - 11 * 8) // 2,   # rough center; tunable after hardware eval
-            y=MEETINGS_Y + (zone_h - font_small.height()) // 2,
-        )
+        if data_is_fresh:
+            _write_text(
+                fb, font_small, "No meetings",
+                x=(DISPLAY_W - 11 * 8) // 2,   # rough center; tunable after hardware eval
+                y=MEETINGS_Y + (zone_h - font_small.height()) // 2,
+            )
         return
 
     # Gap bar — checkerboard strip when next event is far enough away.

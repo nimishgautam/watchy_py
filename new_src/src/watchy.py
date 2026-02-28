@@ -56,7 +56,15 @@ class Watchy:
             self._server_data_last_updated = (cached["fetch_hour"], cached["fetch_minute"])
             self._server_data_stale = True
         else:
-            self._server_data = self._build_mock_server_data(hour=0, minute=0)
+            if DUMMY_DATA:
+                self._server_data = self._build_mock_server_data(hour=0, minute=0)
+            else:
+                self._server_data = {
+                    "utc_offset": 0,
+                    "weather_now": {},
+                    "weather_1h": {},
+                    "meetings": [],
+                }
             self._server_data_last_updated = None
             self._server_data_stale = True
 
@@ -242,6 +250,9 @@ class Watchy:
         if self._server_data_stale and self._server_data_last_updated:
             stale_since_hour = self._server_data_last_updated[0]
 
+        has_valid_weather = self._server_data_last_updated is not None
+        data_is_fresh = not self._server_data_stale
+
         render_all(
             self.display.framebuf,
             hour=hour,
@@ -252,6 +263,8 @@ class Watchy:
             battery_voltage=self._last_battery_voltage or 0.0,
             server_data=server_data,
             stale_since_hour=stale_since_hour,
+            has_valid_weather=has_valid_weather,
+            data_is_fresh=data_is_fresh,
         )
         self.display.update(partial=partial_refresh)
 
