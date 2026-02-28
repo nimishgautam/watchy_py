@@ -1,7 +1,7 @@
 """Entry point: ``python -m ble_server`` (from the new_src/ directory).
 
 Starts the Watchy BLE sync peripheral with Open-Meteo weather data
-(cached to disk, served from cache) and a platform-appropriate pairing agent.
+(cached to disk, served from cache).
 """
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ import signal
 import sys
 from pathlib import Path
 
-from .agent import register_agent
 from .calendar_fetcher import CalendarFetcher
 from .data_provider import CacheBackedDataProvider
 from .fetcher import WeatherFetcher
@@ -37,11 +36,16 @@ async def main() -> None:
     except ImportError:
         log.error(
             "secrets.py not found. Copy secrets.example.py to secrets.py "
-            "and set LATITUDE, LONGITUDE."
+            "and set LATITUDE, LONGITUDE, AUTH_TOKEN."
         )
         sys.exit(1)
 
-    agent_handle = await register_agent()
+    if not getattr(secrets, "AUTH_TOKEN", ""):
+        log.error(
+            "AUTH_TOKEN required in secrets.py for application-level encryption. "
+            "Must match the watch's AUTH_TOKEN."
+        )
+        sys.exit(1)
 
     weather_fetcher = WeatherFetcher(
         latitude=secrets.LATITUDE,
@@ -91,8 +95,6 @@ async def main() -> None:
     except asyncio.CancelledError:
         pass
     log.info("Shutdown complete")
-
-    # agent_handle (D-Bus MessageBus on Linux) is cleaned up by GC
 
 
 if __name__ == "__main__":

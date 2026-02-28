@@ -1,13 +1,9 @@
-"""BLE pairing agent — platform-dispatched.
+"""BLE pairing agent — deprecated.
 
-On Linux, registers a NoInputNoOutput D-Bus agent with BlueZ so the
-watch's ``gap_pair()`` request is accepted automatically ("Just Works"
-LE Secure Connections).  BlueZ persists the bond in
-``/var/lib/bluetooth/``.
-
-On macOS, CoreBluetooth surfaces a system pairing dialog when the central
-initiates — no custom agent is needed.  A stub is provided as a hook for
-any future macOS-specific logic.
+Previously registered a BlueZ D-Bus pairing agent. Pairing is no longer used;
+the protocol now uses application-level AES-256-CBC encryption derived from
+AUTH_TOKEN. This module is kept for reference and may be removed in a future
+release.
 """
 
 # NOTE: Do NOT use ``from __future__ import annotations`` here.

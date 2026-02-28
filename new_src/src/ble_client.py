@@ -21,7 +21,6 @@ import json
 from micropython import const
 
 from ble_protocol import (
-    HEADER_SIZE,
     MSG_SYNC_REQUEST,
     MSG_SYNC_RESPONSE,
     MSG_TIME_SYNC,
@@ -29,10 +28,11 @@ from ble_protocol import (
     MSG_ACK,
     MSG_ERROR,
     parse_header,
-    make_sync_request,
-    make_ack,
+    chunk_message,
     ChunkedReceiver,
 )
+
+from ble_crypto import derive_key, encrypt, decrypt
 
 from constants import (
     BLE_SERVICE_UUID,
@@ -56,8 +56,6 @@ _IRQ_GATTC_CHARACTERISTIC_DONE = const(12)
 _IRQ_GATTC_WRITE_DONE = const(17)
 _IRQ_GATTC_NOTIFY = const(18)
 _IRQ_MTU_EXCHANGED = const(21)
-_IRQ_ENCRYPTION_UPDATE = const(28)
-_IRQ_PASSKEY_ACTION = const(31)
 
 _ADV_IND = const(0x00)
 _ADV_DIRECT_IND = const(0x01)
@@ -109,7 +107,6 @@ class BLEClient:
         self._service_discovered = False
         self._chars_discovered = False
         self._write_done = False
-        self._encrypted = False
 
         self._notify_buffer = []
         self._bonded_peer = self._load_bond()
@@ -181,17 +178,6 @@ class BLEClient:
         elif event == _IRQ_MTU_EXCHANGED:
             conn_handle, mtu = data
             self._mtu = mtu - 3
-
-        elif event == _IRQ_ENCRYPTION_UPDATE:
-            conn_handle, encrypted, authenticated, bonded, key_size = data
-            if encrypted:
-                self._encrypted = True
-
-        elif event == _IRQ_PASSKEY_ACTION:
-            conn_handle, action, passkey = data
-            # Accept numeric comparison automatically (action == 4)
-            if action == 4:
-                self._ble.gap_passkey(conn_handle, 1, 0)
 
     # ------------------------------------------------------------------
     # Blocking helpers
@@ -285,28 +271,16 @@ class BLEClient:
         except Exception:
             pass
 
-        # Pair before sync — server characteristics require encryption.
-        # Skip if already encrypted (e.g. re-bond from stored keys).
-        if not self._encrypted:
-            print("BLE: initiating pairing")
-            self._ble.gap_pair(self._conn_handle)
-            if not self._wait_for("_encrypted", 10000):
-                print("BLE: encryption timeout")
-                self.disconnect()
-                return False
-
         print("BLE: connected, tx={} rx={} mtu={}".format(
             self._tx_handle, self._rx_handle, self._mtu
         ))
         return True
 
     def enter_pairing_mode(self, timeout_ms=None):
-        """Scan for the service, connect, initiate bonding, and request sync data.
+        """Clear bond, scan for service, connect, and request sync data.
 
-        Clears any existing bond first so pairing always starts from a
-        clean state (avoids stale bond mismatches after laptop reboot etc).
-        Returns (True, sync_result) if pairing succeeded (sync_result may be None
-        if sync failed), or False if pairing failed.
+        Returns (True, sync_result) if connection succeeded (sync_result may be
+        None if sync failed), or False if connection failed.
         """
         pairing_timeout = timeout_ms or BLE_PAIRING_TIMEOUT_MS
 
@@ -315,7 +289,6 @@ class BLEClient:
         self._scan_found_addr = None
         self._scan_done = False
         self._connected = False
-        self._encrypted = False
         self._service_start = None
         self._service_end = None
         self._tx_handle = None
@@ -334,51 +307,43 @@ class BLEClient:
             print("BLE: no device found for pairing")
             return False
 
-        print("BLE: found device, connecting for pairing")
+        print("BLE: found device, connecting")
         self._ble.gap_connect(self._scan_found_addr_type, self._scan_found_addr)
 
         if not self._wait_for("_connected", BLE_CONNECT_TIMEOUT_MS):
             print("BLE: pairing connect timeout")
             return False
 
-        # Initiate pairing/bonding — skip if already encrypted (e.g. re-bond from stored keys)
-        if not self._encrypted:
-            print("BLE: initiating pairing")
-            self._ble.gap_pair(self._conn_handle)
-            if not self._wait_for("_encrypted", 10000):
-                print("BLE: encryption timeout")
-                self.disconnect()
-                return False
-        else:
-            print("BLE: already encrypted (re-bonded)")
-
-        # Store bond
-        self._bonded_peer = {
-            "addr_type": self._scan_found_addr_type,
-            "addr": list(self._scan_found_addr),
-        }
-        self._save_bond()
-        print("BLE: paired and bonded")
-
-        # Discover characteristics (may have completed during pairing)
+        # Discover characteristics
         if not self._chars_discovered:
             self._service_discovered = False
             self._ble.gattc_discover_services(self._conn_handle, BLE_SERVICE_UUID)
             if not self._wait_for("_chars_discovered", 5000):
-                print("BLE: char discovery timeout after pairing")
+                print("BLE: char discovery timeout")
                 self.disconnect()
-                return (True, None)  # Paired but no data
+                return (True, None)
 
         if self._tx_handle is None or self._rx_handle is None:
-            print("BLE: required characteristics not found after pairing")
+            print("BLE: required characteristics not found")
             self.disconnect()
             return (True, None)
 
         self._enable_notifications()
 
-        # Request sync to fetch data while still connected
-        result = self.request_sync()
+        try:
+            self._ble.config(mtu=517)
+        except Exception:
+            pass
 
+        # Store bond for future fast reconnect
+        self._bonded_peer = {
+            "addr_type": self._scan_found_addr_type,
+            "addr": list(self._scan_found_addr),
+        }
+        self._save_bond()
+        print("BLE: connected and bonded")
+
+        result = self.request_sync()
         self.disconnect()
         return (True, result)
 
@@ -396,25 +361,28 @@ class BLEClient:
         if self._conn_handle is None or self._tx_handle is None:
             return None
 
-        self._notify_buffer.clear()
-        self._write_done = False
-
-        # Send SYNC_REQUEST (with optional AUTH_TOKEN from secrets)
         try:
             import secrets
             auth_token = getattr(secrets, "AUTH_TOKEN", "") or ""
         except ImportError:
             auth_token = ""
-        token_bytes = auth_token.encode("utf-8") if auth_token else b""
-        request = make_sync_request(seq=0, payload=token_bytes)
-        self._ble.gattc_write(self._conn_handle, self._tx_handle, request, 1)
-
-        if not self._wait_for("_write_done", 3000):
-            print("BLE: sync request write timeout")
+        if not auth_token:
+            print("BLE: AUTH_TOKEN required in secrets.py")
             return None
 
-        # Collect notifications until we have a complete SYNC_RESPONSE
-        # or timeout.
+        key = derive_key(auth_token)
+        token_bytes = auth_token.encode("utf-8")
+        encrypted_req = encrypt(token_bytes, key)
+        frames = chunk_message(MSG_SYNC_REQUEST, encrypted_req, self._mtu, seq=0)
+
+        self._notify_buffer.clear()
+        for frame in frames:
+            self._write_done = False
+            self._ble.gattc_write(self._conn_handle, self._tx_handle, frame, 1)
+            if not self._wait_for("_write_done", 3000):
+                print("BLE: sync request write timeout")
+                return None
+
         deadline = time.ticks_add(time.ticks_ms(), sync_timeout)
         receiver = ChunkedReceiver()
         epoch = None
@@ -435,24 +403,43 @@ class BLEClient:
                     continue
 
                 if msg_type == MSG_TIME_SYNC:
-                    if len(payload) >= 4:
-                        epoch = struct.unpack("<I", payload[:4])[0]
+                    done, assembled = receiver.feed(seq, total, idx, payload)
+                    if done:
+                        try:
+                            plain = decrypt(assembled, key)
+                            if len(plain) >= 4:
+                                epoch = struct.unpack("<I", plain[:4])[0]
+                        except (ValueError, Exception) as e:
+                            print("BLE: decrypt TIME_SYNC failed:", e)
 
                 elif msg_type == MSG_SYNC_RESPONSE:
                     done, assembled = receiver.feed(seq, total, idx, payload)
                     if done:
                         try:
-                            server_data = json.loads(assembled)
+                            plain = decrypt(assembled, key)
+                            server_data = json.loads(plain)
                         except (ValueError, Exception) as e:
-                            print("BLE: bad JSON in SYNC_RESPONSE:", e)
+                            print("BLE: bad SYNC_RESPONSE:", e)
 
                 elif msg_type == MSG_EXTRA:
-                    extra_payloads.append(payload)
+                    done, assembled = receiver.feed(seq, total, idx, payload)
+                    if done:
+                        try:
+                            plain = decrypt(assembled, key)
+                            extra_payloads.append(plain)
+                        except (ValueError, Exception):
+                            pass
 
                 elif msg_type == MSG_ERROR:
-                    code = payload[0] if payload else 0
-                    print("BLE: received ERROR code={}".format(code))
-                    return None
+                    done, assembled = receiver.feed(seq, total, idx, payload)
+                    if done:
+                        try:
+                            plain = decrypt(assembled, key)
+                            code = plain[0] if plain else 0
+                        except (ValueError, Exception):
+                            code = 0
+                        print("BLE: received ERROR code={}".format(code))
+                        return None
 
             if server_data is not None:
                 break
@@ -461,10 +448,13 @@ class BLEClient:
             print("BLE: sync response timeout")
             return None
 
-        # Send ACK
-        self._write_done = False
-        self._ble.gattc_write(self._conn_handle, self._tx_handle, make_ack(seq=0), 1)
-        self._wait_for("_write_done", 2000)
+        # Send ACK (encrypted empty payload)
+        ack_encrypted = encrypt(b"", key)
+        ack_frames = chunk_message(MSG_ACK, ack_encrypted, self._mtu, seq=0)
+        for frame in ack_frames:
+            self._write_done = False
+            self._ble.gattc_write(self._conn_handle, self._tx_handle, frame, 1)
+            self._wait_for("_write_done", 2000)
 
         return {"data": server_data, "epoch": epoch, "extra": extra_payloads}
 

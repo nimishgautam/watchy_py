@@ -16,35 +16,33 @@ The laptop advertises a single custom service.
 | RX Characteristic | `a1b2c3d4-e5f6-7890-abcd-ef1234567892` |
 
 **TX** — the watch writes requests here. Properties: **write** (with
-response). Permissions: **write**, **write encryption required**.
+response). Permissions: **write**.
 
 **RX** — the laptop sends responses here via notifications. Properties:
-**read**, **notify**. Permissions: **read**, **read encryption required**.
+**read**, **notify**. Permissions: **read**.
 The watch subscribes to notifications by writing `0x0001` to the RX
 characteristic's Client Characteristic Configuration Descriptor (CCCD,
 UUID `0x2902`).
 
 ## Security
 
-The link must be **encrypted** (LE Secure Connections pairing with
-bonding).  Both TX and RX characteristics require encryption, so pairing
-is triggered when the watch first accesses them (pair-on-first-access).
-On macOS, CoreBluetooth engages pairing when the central accesses an
-encryption-required characteristic; on Linux, BlueZ uses a NoInputNoOutput
-agent to auto-accept.  The watch calls `gap_pair()` before the first
-write; the bond is persisted so subsequent connections are encrypted
-automatically.
+The BLE link is **unencrypted** at the GATT layer.  Application-level
+encryption protects all message payloads using AES-256-CBC.
 
-### Shared secret (optional)
+### Application-level encryption
 
-Both sides may configure `AUTH_TOKEN` in their respective `secrets.py`
-files.  If the laptop has a non-empty `AUTH_TOKEN`, the watch must send
-it as the SYNC_REQUEST payload (UTF-8 bytes).  If the payload does not
-match, the laptop sends `MSG_ERROR` with code `ERR_AUTH_FAILED` (0x04)
-and does not respond with data.  If either side omits or leaves
-`AUTH_TOKEN` empty, auth is skipped for backward compatibility.
+Both sides **must** configure `AUTH_TOKEN` in their respective `secrets.py`
+files.  The encryption key is derived as `sha256(AUTH_TOKEN.encode()).digest()`.
+All message payloads (in both directions) are encrypted before chunking:
+plaintext is PKCS7-padded, encrypted with AES-256-CBC using a random 16-byte
+IV prepended to each message.
 
-**Recommendation:** Set `AUTH_TOKEN` in both, or in neither.
+- **SYNC_REQUEST** payload: encrypted AUTH_TOKEN (UTF-8 bytes)
+- **TIME_SYNC**, **SYNC_RESPONSE**, **ERROR**: encrypted before transmission
+- **ACK** payload: encrypted empty bytes
+
+The 4-byte frame header (msg_type, seq, total_chunks, chunk_idx) remains
+plaintext so the receiver can reassemble chunks before decrypting.
 
 ## Message Frame Format
 
@@ -66,9 +64,9 @@ accept the largest MTU it can.
 
 ## Message Types
 
-| Code | Name | Direction | Payload |
+| Code | Name | Direction | Payload (plaintext, before encryption) |
 |---|---|---|---|
-| `0x01` | SYNC_REQUEST | watch → laptop | Optional: UTF-8 AUTH_TOKEN bytes |
+| `0x01` | SYNC_REQUEST | watch → laptop | UTF-8 AUTH_TOKEN bytes |
 | `0x02` | SYNC_RESPONSE | laptop → watch | Chunked UTF-8 JSON (see schema below) |
 | `0x03` | TIME_SYNC | laptop → watch | 4 bytes: uint32 LE — current UTC epoch |
 | `0x10` | EXTRA | laptop → watch | Extensible, format TBD |
@@ -107,17 +105,15 @@ Watch                                      Laptop
 
 1. The watch connects (using the bonded peer address for fast reconnect).
 2. The watch subscribes to RX notifications (writes CCCD).
-3. The watch writes a single-frame `SYNC_REQUEST` to the TX
-   characteristic.
-4. The laptop responds with:
-   - **TIME_SYNC** — a single-frame notification containing the current
-     UTC epoch as a 4-byte little-endian uint32.
-   - **SYNC_RESPONSE** — one or more notification frames containing the
-     `server_data` JSON payload, chunked per the frame format.  All
-     chunks share the same `seq` number.
+3. The watch writes `SYNC_REQUEST` to the TX characteristic (one or more
+   chunks; payload is encrypted AUTH_TOKEN).
+4. The laptop responds with (all payloads encrypted):
+   - **TIME_SYNC** — the current UTC epoch as a 4-byte little-endian uint32.
+   - **SYNC_RESPONSE** — the `server_data` JSON payload, chunked per the
+     frame format.  All chunks share the same `seq` number.
    - Optionally, one or more **EXTRA** messages for future extensibility.
-5. The watch reassembles the SYNC_RESPONSE chunks, parses the JSON, and
-   writes an **ACK** to TX.
+5. The watch reassembles chunks, decrypts, parses the JSON, and
+   writes an **ACK** to TX (encrypted empty payload).
 6. The watch disconnects.
 
 **Timeouts:** The watch waits up to 10 seconds for a complete
@@ -184,13 +180,14 @@ total_chunks = ceil(L / (M - 4))
 ```
 
 Each chunk carries:
-- `msg_type` = `0x02` (SYNC_RESPONSE)
+- `msg_type` = message type (e.g. `0x02` for SYNC_RESPONSE)
 - `seq` = same value for all chunks of one message (typically 0)
 - `total_chunks` = total number of chunks
 - `chunk_idx` = 0, 1, 2, ... (total_chunks - 1)
-- `payload` = the corresponding slice of the JSON bytes
+- `payload` = the corresponding slice of the encrypted bytes
 
-The watch reassembles by concatenating payloads in `chunk_idx` order.
+The receiver reassembles by concatenating payloads in `chunk_idx` order,
+then decrypts the assembled ciphertext to obtain the plaintext.
 
 ## Laptop Service Requirements
 
@@ -198,13 +195,13 @@ The laptop service must:
 
 1. **Advertise** the service UUID continuously so the watch can discover
    it.
-2. **Accept bonding** and persist the bond so reconnections are
-   encrypted.
+2. **Reassemble** multi-chunk SYNC_REQUEST (and ACK, ERROR) from the watch.
 3. **Handle SYNC_REQUEST** by:
-   a. If `AUTH_TOKEN` is configured, validating the payload matches (else send `ERR_AUTH_FAILED` and abort).
-   b. Gathering current weather, upcoming meetings, and UTC offset.
-   c. Sending TIME_SYNC with the current UTC epoch.
-   d. Sending the `server_data` JSON as a chunked SYNC_RESPONSE.
+   a. Requiring `AUTH_TOKEN`; rejecting with `ERR_AUTH_FAILED` if missing.
+   b. Decrypting the payload and validating it equals AUTH_TOKEN.
+   c. Gathering current weather, upcoming meetings, and UTC offset.
+   d. Encrypting and sending TIME_SYNC with the current UTC epoch.
+   e. Encrypting and sending the `server_data` JSON as a chunked SYNC_RESPONSE.
 4. **Accept ACK** to confirm the watch received the data.
 5. **Optionally send EXTRA** messages during the connection window.
 

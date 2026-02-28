@@ -9,6 +9,6 @@ LONGITUDE = 13.41
 # MS_CLIENT_ID = "your-client-id"
 # MS_CLIENT_SECRET = "your-client-secret"
 
-# BLE sync auth — must match watch's secrets.AUTH_TOKEN
-# Omit for backward compatibility (no auth)
-# AUTH_TOKEN = "your-shared-secret-token"
+# BLE sync auth — required; must match watch's secrets.AUTH_TOKEN
+# Used for authentication and to derive the encryption key (sha256)
+AUTH_TOKEN = "your-shared-secret-token"

@@ -22,6 +22,7 @@ from bless import (  # type: ignore[import-untyped]
     GATTCharacteristicProperties,
 )
 
+from .crypto import derive_key, encrypt, decrypt
 from .data_provider import DataProvider
 from .protocol import (
     ERR_AUTH_FAILED,
@@ -34,6 +35,7 @@ from .protocol import (
     chunk_message,
     frame_header,
     parse_header,
+    ChunkedReceiver,
 )
 
 log = logging.getLogger(__name__)
@@ -61,6 +63,7 @@ class WatchyBLEServer:
         self._usable_mtu = usable_mtu
         self._server: BlessServer | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._tx_receiver = ChunkedReceiver()
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -81,27 +84,23 @@ class WatchyBLEServer:
 
         await self._server.add_new_service(SERVICE_UUID)
 
-        # TX — watch writes here (SYNC_REQUEST, ACK, ERROR). Encryption required
-        # so pairing is triggered on first write (pair-on-first-access).
+        # TX — watch writes here (SYNC_REQUEST, ACK, ERROR)
         await self._server.add_new_characteristic(
             SERVICE_UUID,
             TX_CHAR_UUID,
             GATTCharacteristicProperties.write,
             None,
-            GATTAttributePermissions.writeable
-            | GATTAttributePermissions.write_encryption_required,
+            GATTAttributePermissions.writeable,
         )
 
-        # RX — server notifies here (TIME_SYNC, SYNC_RESPONSE). Encryption required
-        # so notifications run over an encrypted link.
+        # RX — server notifies here (TIME_SYNC, SYNC_RESPONSE)
         await self._server.add_new_characteristic(
             SERVICE_UUID,
             RX_CHAR_UUID,
             GATTCharacteristicProperties.read
             | GATTCharacteristicProperties.notify,
             None,
-            GATTAttributePermissions.readable
-            | GATTAttributePermissions.read_encryption_required,
+            GATTAttributePermissions.readable,
         )
 
         await self._server.start()
@@ -141,32 +140,53 @@ class WatchyBLEServer:
             log.warning("Malformed frame on TX: %s", raw.hex())
             return
 
+        try:
+            from . import secrets
+            expected_token = getattr(secrets, "AUTH_TOKEN", "") or ""
+        except ImportError:
+            expected_token = ""
+        if not expected_token:
+            log.warning("AUTH_TOKEN required in secrets.py — cannot process")
+            return
+
+        key = derive_key(expected_token)
+
         if msg_type == MSG_SYNC_REQUEST:
-            log.info("SYNC_REQUEST received (seq=%d)", seq)
-            # Validate AUTH_TOKEN if server has one configured
+            log.info("SYNC_REQUEST received (seq=%d, chunk %d/%d)", seq, idx + 1, total)
+            done, assembled = self._tx_receiver.feed(seq, total, idx, payload)
+            if not done:
+                return
+            self._tx_receiver.reset()
             try:
-                from . import secrets
-                expected = getattr(secrets, "AUTH_TOKEN", "") or ""
-            except ImportError:
-                expected = ""
-            if expected:
-                if payload != expected.encode("utf-8"):
-                    log.warning("Auth failed — token mismatch")
-                    err_frame = frame_header(MSG_ERROR, seq, 1, 0) + bytes(
-                        [ERR_AUTH_FAILED]
-                    )
-                    self._notify(err_frame)
-                    return
+                plain = decrypt(assembled, key)
+            except (ValueError, Exception) as e:
+                log.warning("Decrypt SYNC_REQUEST failed: %s", e)
+                self._notify_encrypted(MSG_ERROR, bytes([ERR_AUTH_FAILED]), seq, key)
+                return
+            if plain != expected_token.encode("utf-8"):
+                log.warning("Auth failed — token mismatch")
+                self._notify_encrypted(MSG_ERROR, bytes([ERR_AUTH_FAILED]), seq, key)
+                return
             if self._loop is not None:
                 self._loop.call_soon_threadsafe(
                     asyncio.ensure_future,
-                    self._handle_sync(seq),
+                    self._handle_sync(seq, key),
                 )
         elif msg_type == MSG_ACK:
-            log.info("ACK received (seq=%d)", seq)
+            done, _ = self._tx_receiver.feed(seq, total, idx, payload)
+            if done:
+                self._tx_receiver.reset()
+                log.info("ACK received (seq=%d)", seq)
         elif msg_type == MSG_ERROR:
-            code = payload[0] if payload else 0
-            log.warning("ERROR received (seq=%d, code=0x%02x)", seq, code)
+            done, assembled = self._tx_receiver.feed(seq, total, idx, payload)
+            if done:
+                self._tx_receiver.reset()
+                try:
+                    plain = decrypt(assembled, key)
+                    code = plain[0] if plain else 0
+                except (ValueError, Exception):
+                    code = 0
+                log.warning("ERROR received (seq=%d, code=0x%02x)", seq, code)
         else:
             log.debug(
                 "Unhandled msg_type 0x%02x on TX (seq=%d)", msg_type, seq
@@ -176,29 +196,36 @@ class WatchyBLEServer:
     # Sync response
     # ------------------------------------------------------------------
 
-    async def _handle_sync(self, seq: int) -> None:
+    def _notify_encrypted(
+        self, msg_type: int, payload: bytes, seq: int, key: bytes
+    ) -> None:
+        """Encrypt payload, chunk, and notify each frame."""
+        encrypted = encrypt(payload, key)
+        frames = chunk_message(msg_type, encrypted, self._usable_mtu, seq=seq)
+        for frame in frames:
+            self._notify(frame)
+
+    async def _handle_sync(self, seq: int, key: bytes) -> None:
         assert self._server is not None
 
-        # 1. TIME_SYNC — current UTC epoch as uint32 LE
+        # 1. TIME_SYNC — current UTC epoch as uint32 LE (encrypted)
         epoch = int(time.time())
-        time_frame = frame_header(MSG_TIME_SYNC, seq, 1, 0) + struct.pack(
-            "<I", epoch
-        )
-        self._notify(time_frame)
+        time_payload = struct.pack("<I", epoch)
+        self._notify_encrypted(MSG_TIME_SYNC, time_payload, seq, key)
         log.info("Sent TIME_SYNC epoch=%d", epoch)
 
         await asyncio.sleep(INTER_CHUNK_DELAY_S)
 
-        # 2. SYNC_RESPONSE — chunked JSON (or ERROR if data unavailable)
+        # 2. SYNC_RESPONSE — chunked encrypted JSON (or ERROR if data unavailable)
         server_data = self._data_provider.get_server_data()
         if server_data is None:
             log.warning("No cached data — sending ERROR Not ready")
-            err_frame = frame_header(MSG_ERROR, seq, 1, 0) + bytes([ERR_NOT_READY])
-            self._notify(err_frame)
+            self._notify_encrypted(MSG_ERROR, bytes([ERR_NOT_READY]), seq, key)
             return
 
         payload = json.dumps(server_data, separators=(",", ":")).encode()
-        frames = chunk_message(MSG_SYNC_RESPONSE, payload, self._usable_mtu, seq=seq)
+        encrypted = encrypt(payload, key)
+        frames = chunk_message(MSG_SYNC_RESPONSE, encrypted, self._usable_mtu, seq=seq)
         log.info(
             "Sending SYNC_RESPONSE: %d bytes, %d chunk(s)",
             len(payload),
