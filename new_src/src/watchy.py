@@ -81,7 +81,7 @@ class Watchy:
         self.handle_wakeup()
 
         now = self.rtc.datetime()
-        self.update(now)
+        now = self.update(now)
         self.schedule_next_wake(now[5])
 
         if self.sleep_enabled:
@@ -185,12 +185,14 @@ class Watchy:
 
         if should_sync:
             self.update_server_data(hour, minute)
+            now = self.rtc.datetime()  # Re-read in case RTC was updated by time sync
 
         self.render_display(
             now=now,
             server_data=self._server_data,
             partial_refresh=False,
         )
+        return now
 
     def update_battery(self):
         self._last_battery_voltage = self.get_battery_voltage()
