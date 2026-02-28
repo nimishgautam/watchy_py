@@ -42,9 +42,10 @@ SERVICE_UUID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 TX_CHAR_UUID = "a1b2c3d4-e5f6-7890-abcd-ef1234567891"
 RX_CHAR_UUID = "a1b2c3d4-e5f6-7890-abcd-ef1234567892"
 
-# Conservative default — works with most adapters.  The chunking protocol
-# handles any size; we can refine with runtime MTU detection later.
-DEFAULT_USABLE_MTU = 185
+# Conservative default — matches ATT MTU 23 (payload 20 bytes).  The watch
+# negotiates larger MTU after connect, but many peripherals (e.g. macOS
+# CoreBluetooth) may not honor it; 20 ensures no truncation.
+DEFAULT_USABLE_MTU = 20
 
 INTER_CHUNK_DELAY_S = 0.02
 
@@ -80,23 +81,27 @@ class WatchyBLEServer:
 
         await self._server.add_new_service(SERVICE_UUID)
 
-        # TX — watch writes here (SYNC_REQUEST, ACK, ERROR)
+        # TX — watch writes here (SYNC_REQUEST, ACK, ERROR). Encryption required
+        # so pairing is triggered on first write (pair-on-first-access).
         await self._server.add_new_characteristic(
             SERVICE_UUID,
             TX_CHAR_UUID,
             GATTCharacteristicProperties.write,
             None,
-            GATTAttributePermissions.writeable,
+            GATTAttributePermissions.writeable
+            | GATTAttributePermissions.write_encryption_required,
         )
 
-        # RX — server notifies here (TIME_SYNC, SYNC_RESPONSE)
+        # RX — server notifies here (TIME_SYNC, SYNC_RESPONSE). Encryption required
+        # so notifications run over an encrypted link.
         await self._server.add_new_characteristic(
             SERVICE_UUID,
             RX_CHAR_UUID,
             GATTCharacteristicProperties.read
             | GATTCharacteristicProperties.notify,
             None,
-            GATTAttributePermissions.readable,
+            GATTAttributePermissions.readable
+            | GATTAttributePermissions.read_encryption_required,
         )
 
         await self._server.start()

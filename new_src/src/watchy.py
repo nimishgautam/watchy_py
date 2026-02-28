@@ -198,8 +198,8 @@ class Watchy:
             client = BLEClient()
             if client.scan_and_connect():
                 result = client.request_sync()
-                client.disconnect()
                 if result:
+                    client.persist_bond()
                     self._server_data = result["data"]
                     self._server_data_last_updated = (hour, minute)
                     self._server_data_stale = False
@@ -207,6 +207,8 @@ class Watchy:
                         self._apply_time_sync(result["epoch"])
                     self._cache_write(result["data"], hour, minute)
                     print("BLE sync OK at {:02d}:{:02d}".format(hour, minute))
+                client.disconnect()
+                if result:
                     return
             else:
                 client.disconnect()

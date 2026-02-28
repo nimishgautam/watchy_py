@@ -16,20 +16,24 @@ The laptop advertises a single custom service.
 | RX Characteristic | `a1b2c3d4-e5f6-7890-abcd-ef1234567892` |
 
 **TX** — the watch writes requests here. Properties: **write** (with
-response).
+response). Permissions: **write**, **write encryption required**.
 
 **RX** — the laptop sends responses here via notifications. Properties:
-**notify**. The watch subscribes to notifications by writing `0x0001` to
-the RX characteristic's Client Characteristic Configuration Descriptor
-(CCCD, UUID `0x2902`).
+**read**, **notify**. Permissions: **read**, **read encryption required**.
+The watch subscribes to notifications by writing `0x0001` to the RX
+characteristic's Client Characteristic Configuration Descriptor (CCCD,
+UUID `0x2902`).
 
 ## Security
 
 The link must be **encrypted** (LE Secure Connections pairing with
-bonding).  The watch initiates pairing via `gap_pair()` during a
-dedicated pairing-mode flow triggered by a long press of the BACK button.
-The bond is persisted on both sides so subsequent connections are
-encrypted automatically.
+bonding).  Both TX and RX characteristics require encryption, so pairing
+is triggered when the watch first accesses them (pair-on-first-access).
+On macOS, CoreBluetooth engages pairing when the central accesses an
+encryption-required characteristic; on Linux, BlueZ uses a NoInputNoOutput
+agent to auto-accept.  The watch calls `gap_pair()` before the first
+write; the bond is persisted so subsequent connections are encrypted
+automatically.
 
 ### Shared secret (optional)
 

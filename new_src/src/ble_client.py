@@ -113,6 +113,8 @@ class BLEClient:
 
         self._notify_buffer = []
         self._bonded_peer = self._load_bond()
+        self._connected_addr_type = None
+        self._connected_addr = None
 
     # ------------------------------------------------------------------
     # IRQ handler
@@ -136,6 +138,8 @@ class BLEClient:
             conn_handle, addr_type, addr = data
             self._conn_handle = conn_handle
             self._connected = True
+            self._connected_addr_type = addr_type
+            self._connected_addr = bytes(addr)
             self._ble.gattc_discover_services(conn_handle, BLE_SERVICE_UUID)
 
         elif event == _IRQ_PERIPHERAL_DISCONNECT:
@@ -280,6 +284,16 @@ class BLEClient:
             self._ble.config(mtu=517)
         except Exception:
             pass
+
+        # Pair before sync — server characteristics require encryption.
+        # Skip if already encrypted (e.g. re-bond from stored keys).
+        if not self._encrypted:
+            print("BLE: initiating pairing")
+            self._ble.gap_pair(self._conn_handle)
+            if not self._wait_for("_encrypted", 10000):
+                print("BLE: encryption timeout")
+                self.disconnect()
+                return False
 
         print("BLE: connected, tx={} rx={} mtu={}".format(
             self._tx_handle, self._rx_handle, self._mtu
@@ -487,6 +501,20 @@ class BLEClient:
             print("BLE: bond saved to", _BOND_FILE)
         except OSError as e:
             print("BLE: failed to save bond:", e)
+
+    def persist_bond(self):
+        """Save the current connected peer as bonded for future direct connect.
+
+        Call after a successful sync (e.g. from update flow) so the next
+        sync can connect directly without scanning.
+        """
+        if self._conn_handle is None or self._connected_addr is None:
+            return
+        self._bonded_peer = {
+            "addr_type": self._connected_addr_type,
+            "addr": list(self._connected_addr),
+        }
+        self._save_bond()
 
     def clear_bond(self):
         """Remove stored bond data."""
