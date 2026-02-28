@@ -17,13 +17,14 @@ def merge_meetings(
     Deduplication is best-effort (same start+title treated as duplicate).
     """
     meetings: list[dict] = []
-    seen: set[tuple[int, int, str]] = set()
+    seen: set[tuple[str, int, int, str]] = set()
 
     for source in sources:
         if not source:
             continue
         for m in source:
             key = (
+                m.get("date", ""),
                 m.get("start_hour", 0),
                 m.get("start_minute", 0),
                 m.get("title", "")[:20],
@@ -33,5 +34,7 @@ def merge_meetings(
             seen.add(key)
             meetings.append(m)
 
-    meetings.sort(key=lambda x: (x.get("start_hour", 0), x.get("start_minute", 0)))
+    meetings.sort(
+        key=lambda x: (x.get("date", ""), x.get("start_hour", 0), x.get("start_minute", 0))
+    )
     return meetings[:limit]

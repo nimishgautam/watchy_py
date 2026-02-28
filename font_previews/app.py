@@ -44,12 +44,12 @@ DEFAULT_DATA = {
     "weather_now": {"temp": 72, "condition": "sunny"},
     "weather_1h": {"temp": 65, "condition": "cloudy_thin"},
     "meetings": [
-        {"start_hour": 10, "start_minute": 5, "duration_min": 30,
-         "title": "Team standup", "type": "live"},
-        {"start_hour": 10, "start_minute": 30, "duration_min": 15,
-         "title": "Quick sync", "type": "recurring"},
-        {"start_hour": 10, "start_minute": 45, "duration_min": 45,
-         "title": "Client call", "type": "call"},
+        {"date": "2025-02-24", "start_hour": 10, "start_minute": 5,
+         "duration_min": 30, "title": "Team standup", "type": "live"},
+        {"date": "2025-02-24", "start_hour": 10, "start_minute": 30,
+         "duration_min": 15, "title": "Quick sync", "type": "recurring"},
+        {"date": "2025-02-24", "start_hour": 10, "start_minute": 45,
+         "duration_min": 45, "title": "Client call", "type": "call"},
     ],
 }
 
@@ -98,6 +98,7 @@ def _render_watchface(font_cfgs: dict, data: dict) -> Image.Image:
         hour=data.get("hour", 10),
         minute=data.get("minute", 25),
         week_day=data.get("week_day", 3),
+        year=data.get("year", 2025),
         month=data.get("month", 2),
         day=data.get("day", 24),
         battery_voltage=data.get("battery_v", 3.8),

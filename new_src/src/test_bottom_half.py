@@ -28,7 +28,7 @@ from renderer import render_all
 HOUR = 10
 MINUTE = 20
 WEEK_DAY = 3  # Wednesday
-
+YEAR = 2025
 MONTH = 2    # February
 DAY = 24
 
@@ -44,8 +44,11 @@ BATTERY_V = 3.8   # ~67% full
 SERVER_DATA = {
     "weather_now": {"temp": 72, "condition": "windy_rain"},
     "weather_1h":  {"temp": 65, "condition": "cloudy_thick"},
+    "fetch_hour": HOUR,
+    "fetch_minute": MINUTE,
     "meetings": [
         {
+            "date": "2025-02-24",
             "start_hour": 10,
             "start_minute": 5,
             "duration_min": 30,
@@ -53,6 +56,7 @@ SERVER_DATA = {
             "type": "live",
         },
         {
+            "date": "2025-02-24",
             "start_hour": 10,
             "start_minute": 30,
             "duration_min": 15,
@@ -60,6 +64,7 @@ SERVER_DATA = {
             "type": "recurring",
         },
         {
+            "date": "2025-02-24",
             "start_hour": 10,
             "start_minute": 45,
             "duration_min": 45,
@@ -67,6 +72,7 @@ SERVER_DATA = {
             "type": "call",
         },
         {
+            "date": "2025-02-24",
             "start_hour": 11,
             "start_minute": 0,
             "duration_min": 60,
@@ -74,6 +80,7 @@ SERVER_DATA = {
             "type": "focus",
         },
         {
+            "date": "2025-02-24",
             "start_hour": 12,
             "start_minute": 0,
             "duration_min": 90,
@@ -81,6 +88,7 @@ SERVER_DATA = {
             "type": "personal",
         },
         {
+            "date": "2025-02-24",
             "start_hour": 14,
             "start_minute": 0,
             "duration_min": 150,
@@ -95,12 +103,18 @@ SERVER_DATA = {
 
 HOUR = 9
 MINUTE = 0
+YEAR = 2025
+MONTH = 2
+DAY = 24
 
 SERVER_DATA = {
     "weather_now": {"temp": 68, "condition": "night"},
     "weather_1h":  {"temp": 71, "condition": "night_snow"},
+    "fetch_hour": HOUR,
+    "fetch_minute": MINUTE,
     "meetings": [
         {
+            "date": "2025-02-24",
             "start_hour": 10,
             "start_minute": 30,
             "duration_min": 30,
@@ -108,6 +122,7 @@ SERVER_DATA = {
             "type": "recurring",
         },
         {
+            "date": "2025-02-24",
             "start_hour": 11,
             "start_minute": 0,
             "duration_min": 60,
@@ -123,6 +138,7 @@ render_all(
     hour=HOUR,
     minute=MINUTE,
     week_day=WEEK_DAY,
+    year=YEAR,
     month=MONTH,
     day=DAY,
     battery_voltage=BATTERY_V,

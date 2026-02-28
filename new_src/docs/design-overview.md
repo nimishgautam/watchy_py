@@ -93,16 +93,18 @@ On each quarter-boundary wake (or manual BACK-button press), the watch:
 3. Receives a TIME_SYNC (UTC epoch) + SYNC_RESPONSE (chunked JSON).
 4. Sends an ACK and disconnects.
 
-The JSON payload schema is unchanged:
+The JSON payload schema:
 
 ```json
 {
     "utc_offset": -5,
+    "fetch_hour": 14,
+    "fetch_minute": 30,
     "weather_now":  { "temp": 72, "condition": "sunny" },
     "weather_1h":   { "temp": 65, "condition": "rain" },
     "meetings": [
-        { "start_hour": 10, "start_minute": 30, "duration_min": 30,
-          "title": "Standup", "type": "meeting" },
+        { "date": "2025-02-28", "start_hour": 10, "start_minute": 30,
+          "duration_min": 30, "title": "Standup", "type": "meeting" },
         ...
     ]
 }
@@ -112,6 +114,10 @@ The laptop service is responsible for talking to Google Calendar, weather
 APIs, handling OAuth, expanding recurring events, resolving timezones, and
 trimming the response. The watch just sends a BLE request, parses the JSON
 response, and caches the result.
+
+The `fetch_hour` and `fetch_minute` fields (local time) indicate when the
+weather was fetched. The watch uses these to display correct hour labels
+(e.g. `14h` / `15h`) when data is stale, instead of the sync time.
 
 **For development:** set `DUMMY_DATA = True` in `constants.py` to use
 hardcoded mock data without touching BLE.

@@ -84,6 +84,7 @@ def fetch_weather(lat: float, lon: float, timezone: str = "auto") -> dict[str, A
 def _dummy_meetings() -> list[dict[str, Any]]:
     """Placeholder meetings anchored to current local time."""
     now = datetime.datetime.now(datetime.timezone.utc).astimezone()
+    today = now.strftime("%Y-%m-%d")
     h, m = now.hour, now.minute
     templates = [
         (0, 15, 30, "Standup", "recurring"),
@@ -96,6 +97,7 @@ def _dummy_meetings() -> list[dict[str, Any]]:
         start_m = (m + dm) % 60
         meetings.append(
             {
+                "date": today,
                 "start_hour": start_h,
                 "start_minute": start_m,
                 "duration_min": dur,
@@ -178,4 +180,6 @@ def _build_weather_from_response(
         "utc_offset": tz_offset_h,
         "weather_now": weather_now,
         "weather_1h": weather_1h,
+        "fetch_hour": now_local.hour,
+        "fetch_minute": now_local.minute,
     }

@@ -112,6 +112,7 @@ def render_all(
     hour: int,
     minute: int,
     week_day: int,
+    year: int,
     month: int,
     day: int,
     battery_voltage: float,
@@ -127,6 +128,7 @@ def render_all(
         hour: 0-23.
         minute: 0-59.
         week_day: 1-7 (Mon-Sun).
+        year: Full year (e.g. 2025).
         month: 1-12.
         day: 1-31.
         battery_voltage: volts (e.g. 3.8).
@@ -143,7 +145,7 @@ def render_all(
     _render_top_strip(fb, week_day, month, day, battery_voltage, stale_since_hour)
     draw_clock(fb, hour, minute)
     _render_weather(fb, server_data, stale_since_hour, has_valid_weather)
-    _render_meetings(fb, server_data, hour, minute, data_is_fresh)
+    _render_meetings(fb, server_data, hour, minute, year, month, day, data_is_fresh)
 
 
 # ---------------------------------------------------------------------------
@@ -241,6 +243,7 @@ def _render_weather_row(fb, weather: dict, label: str, row_top: int):
 
 
 def _render_meetings(fb, server_data: dict, hour: int, minute: int,
+                    year: int, month: int, day: int,
                     data_is_fresh: bool = True):
     """Meetings zone: upcoming calendar entries.  Zone: x=0-199, y=128-199.
 
@@ -250,8 +253,9 @@ def _render_meetings(fb, server_data: dict, hour: int, minute: int,
 
     Rows for in-progress meetings or meetings starting within 15 minutes are
     rendered inverted (white text on black background).  Meetings that have
-    already ended are excluded.  Up to MEETINGS_MAX_ROWS entries are shown,
-    sorted by start time.
+    already ended are excluded.  Only meetings on today's date (from RTC) are
+    shown; past and next-day meetings are filtered out.  Up to MEETINGS_MAX_ROWS
+    entries are shown, sorted by start time.
 
     Gap bar: when the next event starts >= GAP_BAR_THRESHOLD_MIN minutes from
     now, a 7px checkerboard strip is drawn at the top of the zone and the event
@@ -259,11 +263,15 @@ def _render_meetings(fb, server_data: dict, hour: int, minute: int,
     data only — no separate flag from the server is needed.
     """
     now_total = hour * 60 + minute
+    today_str = "{:04d}-{:02d}-{:02d}".format(year, month, day)
     meetings = server_data.get("meetings", [])
 
-    # Filter out meetings that have already ended, then sort by start time.
+    # Filter by date (today only), then exclude ended meetings, then sort.
     visible = []
     for m in meetings:
+        meeting_date = m.get("date")
+        if meeting_date is not None and meeting_date != today_str:
+            continue
         start_total = m["start_hour"] * 60 + m["start_minute"]
         end_total = start_total + m["duration_min"]
         if end_total > now_total:

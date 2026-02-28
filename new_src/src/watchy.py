@@ -154,11 +154,16 @@ class Watchy:
             if sync_result:
                 self._server_data = sync_result["data"]
                 now = self.rtc.datetime()
-                self._server_data_last_updated = (now[4], now[5])
+                data = sync_result["data"]
+                fh, fm = data.get("fetch_hour"), data.get("fetch_minute")
+                if fh is not None and fm is not None:
+                    self._server_data_last_updated = (fh, fm)
+                else:
+                    self._server_data_last_updated = (now[4], now[5])
                 self._server_data_stale = False
                 if sync_result.get("epoch") is not None:
                     self._apply_time_sync(sync_result["epoch"])
-                self._cache_write(sync_result["data"], now[4], now[5])
+                self._cache_write(data, now[4], now[5])
                 print("BLE pairing+sync OK")
             self._display_status_message("paired")
         time.sleep(1.5)
@@ -208,12 +213,17 @@ class Watchy:
                 result = client.request_sync()
                 if result:
                     client.persist_bond()
-                    self._server_data = result["data"]
-                    self._server_data_last_updated = (hour, minute)
+                    data = result["data"]
+                    self._server_data = data
+                    fh, fm = data.get("fetch_hour"), data.get("fetch_minute")
+                    if fh is not None and fm is not None:
+                        self._server_data_last_updated = (fh, fm)
+                    else:
+                        self._server_data_last_updated = (hour, minute)
                     self._server_data_stale = False
                     if result["epoch"] is not None:
                         self._apply_time_sync(result["epoch"])
-                    self._cache_write(result["data"], hour, minute)
+                    self._cache_write(data, hour, minute)
                     print("BLE sync OK at {:02d}:{:02d}".format(hour, minute))
                 client.disconnect()
                 if result:
@@ -244,7 +254,7 @@ class Watchy:
 
         self._debug_log_render_payload(server_data, partial_refresh)
 
-        (_, month, day, week_day, hour, minute, _, _) = now
+        (year, month, day, week_day, hour, minute, _, _) = now
 
         stale_since_hour = None
         if self._server_data_stale and self._server_data_last_updated:
@@ -258,6 +268,7 @@ class Watchy:
             hour=hour,
             minute=minute,
             week_day=week_day,
+            year=year,
             month=month,
             day=day,
             battery_voltage=self._last_battery_voltage or 0.0,
@@ -333,9 +344,11 @@ class Watchy:
         return self.adc.read_uv() / 1000 * 2
 
     def _cache_write(self, data: dict, hour: int, minute: int):
+        fh = data.get("fetch_hour", hour)
+        fm = data.get("fetch_minute", minute)
         try:
             with open(_CACHE_FILE, "w") as f:
-                json.dump({"data": data, "fetch_hour": hour, "fetch_minute": minute}, f)
+                json.dump({"data": data, "fetch_hour": fh, "fetch_minute": fm}, f)
         except OSError as e:
             print("cache write failed:", e)
 
@@ -348,18 +361,22 @@ class Watchy:
             return None
 
     def _build_mock_server_data(self, hour=None, minute=None) -> dict:
+        now = self.rtc.datetime()
         if hour is None or minute is None:
-            now = self.rtc.datetime()
             hour = now[4]
             minute = now[5]
-
+        year, month, day = now[0], now[1], now[2]
+        today = "{:04d}-{:02d}-{:02d}".format(year, month, day)
         next_hour = (hour + 1) % 24
         return {
             "utc_offset": -5,
             "weather_now": {"temp": 70 + (hour % 4), "condition": "sunny"},
             "weather_1h": {"temp": 66 + (next_hour % 4), "condition": "cloudy_thin"},
+            "fetch_hour": hour,
+            "fetch_minute": minute,
             "meetings": [
                 {
+                    "date": today,
                     "start_hour": hour,
                     "start_minute": (minute + 15) % 60,
                     "duration_min": 30,
@@ -367,6 +384,7 @@ class Watchy:
                     "type": "meeting",
                 },
                 {
+                    "date": today,
                     "start_hour": next_hour,
                     "start_minute": 0,
                     "duration_min": 60,

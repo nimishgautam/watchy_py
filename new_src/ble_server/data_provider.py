@@ -22,6 +22,10 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+# Max age (minutes) before weather cache is considered stale. If exceeded,
+# trigger a refetch and return None so the watch gets ERR_NOT_READY.
+WEATHER_CACHE_MAX_AGE_MINUTES = 60
+
 
 class DataProvider(ABC):
     @abstractmethod
@@ -66,6 +70,8 @@ class DummyDataProvider(DataProvider):
             "utc_offset": utc_offset,
             "weather_now": {"temp": 4, "condition": "windy_rain"},
             "weather_1h": {"temp": 6, "condition": "severe_weather"},
+            "fetch_hour": h,
+            "fetch_minute": m,
             "meetings": meetings,
         }
 
@@ -96,6 +102,25 @@ class CacheBackedDataProvider(DataProvider):
                 log.warning("Weather cache invalid, triggering fetch")
                 self._weather_fetcher.trigger_immediate()
                 return None
+
+            # Staleness check: if cache has a timestamp and is too old, trigger
+            # refetch and return None so the watch gets ERR_NOT_READY.
+            fh = weather_data.get("fetch_hour")
+            fm = weather_data.get("fetch_minute")
+            if fh is not None and fm is not None:
+                now = datetime.datetime.now(datetime.timezone.utc).astimezone()
+                fetch_mins = fh * 60 + fm
+                now_mins = now.hour * 60 + now.minute
+                age_mins = now_mins - fetch_mins
+                if age_mins < 0:
+                    age_mins += 24 * 60
+                if age_mins > WEATHER_CACHE_MAX_AGE_MINUTES:
+                    log.debug(
+                        "Weather cache stale (%d min old), triggering fetch",
+                        age_mins,
+                    )
+                    self._weather_fetcher.trigger_immediate()
+                    return None
 
             # Merge calendar (or use dummy if unavailable)
             meetings = open_meteo._dummy_meetings()

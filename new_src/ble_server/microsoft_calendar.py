@@ -147,6 +147,7 @@ def _event_to_meeting(event: dict[str, Any], tz: datetime.tzinfo) -> dict[str, A
         subject = subject[: TITLE_MAX_LEN - 1] + "…"
 
     return {
+        "date": start_dt.strftime("%Y-%m-%d"),
         "start_hour": start_dt.hour,
         "start_minute": start_dt.minute,
         "duration_min": duration_min,

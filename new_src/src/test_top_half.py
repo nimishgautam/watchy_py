@@ -18,6 +18,7 @@ from renderer import render_all
 HOUR = 3
 MINUTE = 7
 WEEK_DAY = 3  # Wednesday
+YEAR = 2025
 MONTH = 2    # February
 DAY = 24
 
@@ -26,6 +27,8 @@ BATTERY_V = 3.8   # ~67% full
 SERVER_DATA = {
     "weather_now": {"temp": 72, "condition": "sunny_rain"},
     "weather_1h":  {"temp": 65, "condition": "cloudy_thin"},
+    "fetch_hour": HOUR,
+    "fetch_minute": MINUTE,
     "meetings": [],
 }
 
@@ -35,6 +38,7 @@ render_all(
     hour=HOUR,
     minute=MINUTE,
     week_day=WEEK_DAY,
+    year=YEAR,
     month=MONTH,
     day=DAY,
     battery_voltage=BATTERY_V,
