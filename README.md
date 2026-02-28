@@ -18,6 +18,10 @@ I realized usually I don't care if it's, say, 9:07 vs 9:08, but do care if it's 
 
 So I display the hour and then a circle draws around the hour representing progression of time. 9:00 - 9:13 (just 2 min before something important) is a light arc, then 9:13-9:15 is a heavy arc. So at-a-glance you'll know "It's between 9 and 9:15 but not quite 9:15 yet" or "It will be 9:15 within 2 minutes, better get a move on if I have something that has to happen at 9:15". 
 
+Note that the hour with a full dark circle around it actually means you have less than 2 minutes until the next hour (ie 9 with a full circle around it means "it's between 9:58 and 10"). To try and make that a little less ambiguous I have a tiny dot over the hour to remind you it's not "very 9:00" but "very close to 10".
+
+This also sets a natural update cadence, the watch polls the server every 15 minutes.
+
 ### Weather
 
 I also realized there are some weather conditions I care about and some I don't. They are outlined in [weather_types](new_src/docs/weather_types.md). 
@@ -29,6 +33,8 @@ The watch displays the weather from the type list and the temperature this hour 
 I also care what meetings I have this day at-a-glance.
 
 Meetings are shown in chronological order with start time, and small description text. There's also an icon for what kind of meeting it is, and then filled circles for the duration of the meeting (1 circle = 1 hour)
+
+I also have a small grey bar appear if I have at least 30 minutes until my next meeting.
 
 ### Server with bluetooth
 

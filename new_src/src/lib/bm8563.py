@@ -44,7 +44,8 @@ class BM8563:
             minutes = bcdtodec(self._timebuf[1] & 0x7F)
             hours = bcdtodec(self._timebuf[2] & 0x3F)
             day = bcdtodec(self._timebuf[3] & 0x3F)
-            weekday = (self._timebuf[4] & 0x07) + 1
+            raw = self._timebuf[4] & 0x07
+            weekday = (raw + 6) % 7 + 1
             month = bcdtodec(self._timebuf[5] & 0x1F)
             year = 2000 + bcdtodec(self._timebuf[6])
             return (year, month, day, weekday, hours, minutes, seconds, 0)
@@ -54,7 +55,7 @@ class BM8563:
         self._timebuf[1] = dectobcd(minutes) & 0x7F
         self._timebuf[2] = dectobcd(hours) & 0x3F
         self._timebuf[3] = dectobcd(day) & 0x3F
-        self._timebuf[4] = (weekday - 1) & 0x07
+        self._timebuf[4] = (weekday % 7) & 0x07
         self._timebuf[5] = dectobcd(month) & 0x1F
         self._timebuf[6] = dectobcd(year % 100)
         self.i2c.writeto_mem(self.addr, DATETIME_REG, self._timebuf)
