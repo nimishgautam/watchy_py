@@ -67,9 +67,8 @@ async def main() -> None:
 
     weather_task = asyncio.create_task(weather_fetcher.run())
     calendar_task = asyncio.create_task(calendar_fetcher.run())
-    if not WEATHER_CACHE_PATH.exists():
-        weather_fetcher.trigger_immediate()
-    calendar_fetcher.trigger_immediate()  # First calendar fetch right away
+    weather_fetcher.trigger_immediate()
+    calendar_fetcher.trigger_immediate()
 
     server = WatchyBLEServer(data_provider=provider)
 
