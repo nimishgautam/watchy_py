@@ -208,11 +208,27 @@ class WatchyBLEServer:
     async def _handle_sync(self, seq: int, key: bytes) -> None:
         assert self._server is not None
 
-        # 1. TIME_SYNC — current UTC epoch as uint32 LE (encrypted)
-        epoch = int(time.time())
-        time_payload = struct.pack("<I", epoch)
+        # 1. TIME_SYNC — current UTC datetime as 7 bytes (year, month, day, hour, minute, second)
+        now = time.gmtime(time.time())
+        time_payload = struct.pack(
+            "<HBBBBB",
+            now.tm_year,
+            now.tm_mon,
+            now.tm_mday,
+            now.tm_hour,
+            now.tm_min,
+            now.tm_sec,
+        )
         self._notify_encrypted(MSG_TIME_SYNC, time_payload, seq, key)
-        log.info("Sent TIME_SYNC epoch=%d", epoch)
+        log.info(
+            "Sent TIME_SYNC %04d-%02d-%02d %02d:%02d:%02d UTC",
+            now.tm_year,
+            now.tm_mon,
+            now.tm_mday,
+            now.tm_hour,
+            now.tm_min,
+            now.tm_sec,
+        )
 
         await asyncio.sleep(INTER_CHUNK_DELAY_S)
 

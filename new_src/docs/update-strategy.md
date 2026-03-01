@@ -38,14 +38,14 @@ needed.
 |---|---|---|---|
 | **Battery voltage** | Every wake (8×/hr) | No | Local ADC read, essentially free |
 | **BLE sync** | Quarter boundaries (4×/hr): 0, 15, 30, 45 | Yes | One BLE exchange returns meetings + weather + utc_offset + time sync |
-| **Time sync** | Every BLE sync (via TIME_SYNC message) | Yes | Replaces NTP — laptop sends UTC epoch over BLE. NTP kept as manual fallback. |
+| **Time sync** | Every BLE sync (via TIME_SYNC message) | Yes | Replaces NTP — laptop sends UTC datetime (YMDHMS) over BLE. NTP kept as manual fallback. |
 
 ### BLE Sync
 
 The watch connects to a bonded laptop running a GATT peripheral service
 and exchanges a single request/response that provides everything:
 meetings, current weather, +1h weather, the current UTC offset, and a
-UTC epoch for RTC drift correction. See `ble-protocol.md` for the full
+UTC datetime for RTC drift correction. See `ble-protocol.md` for the full
 wire-level specification and `design-overview.md § Data Transport` for
 the JSON schema.
 
@@ -65,7 +65,7 @@ wake at minute 0 (quarter boundary):
     2. Write SYNC_REQUEST
     3. Receive TIME_SYNC + SYNC_RESPONSE (+ optional EXTRA)
     4. Write ACK, disconnect BLE
-    5. Apply time correction from TIME_SYNC epoch
+    5. Apply time correction from TIME_SYNC datetime
     6. Cache server_data to flash
     7. Render display from fresh data
     8. Deep sleep until minute 13
@@ -209,10 +209,10 @@ def update():
             try:
                 client = BLEClient()
                 client.scan_and_connect()
-                result = client.request_sync()  # returns data + epoch
+                result = client.request_sync()  # returns data + datetime
                 client.disconnect()
                 server_data = result["data"]
-                apply_time_sync(result["epoch"])
+                apply_time_sync(result["datetime"])
                 cache_write(server_data, hour, minute)
                 stale = False
             except:
@@ -266,7 +266,7 @@ The laptop service must:
   current conditions + 1h forecast.
 - **Return the current UTC offset** for the user's timezone, solving DST
   automatically.
-- **Send a TIME_SYNC** message with the current UTC epoch so the watch
+- **Send a TIME_SYNC** message with the current UTC datetime so the watch
   can correct RTC drift (replaces NTP).
 - **Keep the response small.** The chunked protocol handles arbitrary
   payload sizes, but a few hundred bytes of JSON is ideal.

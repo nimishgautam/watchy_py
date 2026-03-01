@@ -90,7 +90,7 @@ On each quarter-boundary wake (or manual BACK-button press), the watch:
 
 1. Connects to the bonded laptop.
 2. Sends a SYNC_REQUEST.
-3. Receives a TIME_SYNC (UTC epoch) + SYNC_RESPONSE (chunked JSON).
+3. Receives a TIME_SYNC (UTC datetime) + SYNC_RESPONSE (chunked JSON).
 4. Sends an ACK and disconnects.
 
 The JSON payload schema:

@@ -30,6 +30,73 @@ from constants import (
 _CACHE_FILE = "server_cache.json"
 
 DEBUG = False
+
+
+def _days_in_month(year: int, month: int) -> int:
+    """Return number of days in the given month (1-12)."""
+    if month in (1, 3, 5, 7, 8, 10, 12):
+        return 31
+    if month in (4, 6, 9, 11):
+        return 30
+    # February: 29 in leap years
+    if (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0):
+        return 29
+    return 28
+
+
+def _weekday_from_date(year: int, month: int, day: int) -> int:
+    """Return weekday 1-7 (Mon=1, Sun=7) for the given date. Uses Zeller's congruence."""
+    if month < 3:
+        month += 12
+        year -= 1
+    q = day
+    m = month
+    k = year % 100
+    j = year // 100
+    # 0=Sat, 1=Sun, 2=Mon, 3=Tue, 4=Wed, 5=Thu, 6=Fri
+    h = (q + (13 * (m + 1)) // 5 + k + k // 4 + j // 4 - 2 * j) % 7
+    # Convert to 1=Mon .. 7=Sun
+    return ((h + 5) % 7) + 1
+
+
+def _utc_to_local(
+    year: int,
+    month: int,
+    day: int,
+    hour: int,
+    minute: int,
+    second: int,
+    offset_hours: int,
+) -> tuple:
+    """Add offset_hours to UTC datetime. Returns (year, month, day, hour, minute, second).
+
+    Handles day/month/year rollover entirely without using epoch.
+    """
+    total_minutes = hour * 60 + minute + offset_hours * 60
+    days_delta = total_minutes // (24 * 60)
+    total_minutes = total_minutes % (24 * 60)
+    if total_minutes < 0:
+        total_minutes += 24 * 60
+        days_delta -= 1
+    new_hour = total_minutes // 60
+    new_minute = total_minutes % 60
+    new_day = day + days_delta
+
+    while new_day > _days_in_month(year, month):
+        new_day -= _days_in_month(year, month)
+        month += 1
+        if month > 12:
+            month = 1
+            year += 1
+
+    while new_day < 1:
+        month -= 1
+        if month < 1:
+            month = 12
+            year -= 1
+        new_day += _days_in_month(year, month)
+
+    return (year, month, new_day, new_hour, new_minute, second)
 QUARTER_BOUNDARY_MINUTES = (0, 15, 30, 45)
 TRANSITION_OFFSET_MINUTES = 2
 # Wake every quarter boundary and 2 minutes before the next quarter.
@@ -161,8 +228,8 @@ class Watchy:
                 else:
                     self._server_data_last_updated = (now[4], now[5])
                 self._server_data_stale = False
-                if sync_result.get("epoch") is not None:
-                    self._apply_time_sync(sync_result["epoch"])
+                if sync_result.get("datetime") is not None:
+                    self._apply_time_sync(sync_result["datetime"])
                 self._cache_write(data, now[4], now[5])
                 print("BLE pairing+sync OK")
             self._display_status_message("paired")
@@ -223,8 +290,8 @@ class Watchy:
                     else:
                         self._server_data_last_updated = (hour, minute)
                     self._server_data_stale = False
-                    if result["epoch"] is not None:
-                        self._apply_time_sync(result["epoch"])
+                    if result["datetime"] is not None:
+                        self._apply_time_sync(result["datetime"])
                     self._cache_write(data, hour, minute)
                     print("BLE sync OK at {:02d}:{:02d}".format(hour, minute))
                 client.disconnect()
@@ -238,14 +305,23 @@ class Watchy:
         self._server_data_stale = True
         print("BLE sync failed — data is stale")
 
-    def _apply_time_sync(self, epoch: int):
-        """Adjust the RTC from a UTC epoch received over BLE."""
+    def _apply_time_sync(self, utc_datetime: tuple):
+        """Adjust the RTC from UTC (year, month, day, hour, minute, second) received over BLE.
+
+        Applies utc_offset and handles day/month/year rollover without using epoch.
+        """
+        year, month, day, hour, minute, second = utc_datetime
         utc_offset = self._server_data.get("utc_offset", 0)
-        local_epoch = epoch + utc_offset * 3600
-        tm = time.gmtime(local_epoch)
-        # tm: (year, month, mday, hour, minute, second, weekday, yearday)
-        self.rtc.set_datetime((tm[0], tm[1], tm[2], tm[6] + 1, tm[3], tm[4], tm[5], 0))
-        print("RTC synced from BLE epoch={} offset={}".format(epoch, utc_offset))
+        year, month, day, hour, minute, second = _utc_to_local(
+            year, month, day, hour, minute, second, utc_offset
+        )
+        weekday = _weekday_from_date(year, month, day)
+        self.rtc.set_datetime((year, month, day, weekday, hour, minute, second, 0))
+        print(
+            "RTC synced from BLE {:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d} offset={}".format(
+                year, month, day, hour, minute, second, utc_offset
+            )
+        )
 
     def maybe_sync_ntp(self):
         """Manual NTP sync — kept as fallback, not called automatically."""

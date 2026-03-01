@@ -21,7 +21,7 @@ import struct
 
 MSG_SYNC_REQUEST  = const(0x01)  # watch → laptop, empty payload
 MSG_SYNC_RESPONSE = const(0x02)  # laptop → watch, chunked JSON (server_data)
-MSG_TIME_SYNC     = const(0x03)  # laptop → watch, 4-byte LE uint32 UTC epoch
+MSG_TIME_SYNC     = const(0x03)  # laptop → watch, 7 bytes: year,month,day,hour,min,sec (UTC)
 MSG_EXTRA         = const(0x10)  # laptop → watch, extensible future use
 MSG_ACK           = const(0xFE)  # either direction, confirms receipt
 MSG_ERROR         = const(0xFF)  # either direction, 1-byte error code

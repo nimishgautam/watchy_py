@@ -68,7 +68,7 @@ accept the largest MTU it can.
 |---|---|---|---|
 | `0x01` | SYNC_REQUEST | watch → laptop | UTF-8 AUTH_TOKEN bytes |
 | `0x02` | SYNC_RESPONSE | laptop → watch | Chunked UTF-8 JSON (see schema below) |
-| `0x03` | TIME_SYNC | laptop → watch | 4 bytes: uint32 LE — current UTC epoch |
+| `0x03` | TIME_SYNC | laptop → watch | 7 bytes: year (uint16 LE), month, day, hour, minute, second (UTC) |
 | `0x10` | EXTRA | laptop → watch | Extensible, format TBD |
 | `0xFE` | ACK | either direction | Empty (no payload) |
 | `0xFF` | ERROR | either direction | 1 byte: error code |
@@ -108,7 +108,7 @@ Watch                                      Laptop
 3. The watch writes `SYNC_REQUEST` to the TX characteristic (one or more
    chunks; payload is encrypted AUTH_TOKEN).
 4. The laptop responds with (all payloads encrypted):
-   - **TIME_SYNC** — the current UTC epoch as a 4-byte little-endian uint32.
+   - **TIME_SYNC** — the current UTC datetime as 7 bytes: year (uint16 LE), month (1–12), day (1–31), hour (0–23), minute (0–59), second (0–59). No epoch ambiguity.
    - **SYNC_RESPONSE** — the `server_data` JSON payload, chunked per the
      frame format.  All chunks share the same `seq` number.
    - Optionally, one or more **EXTRA** messages for future extensibility.
@@ -152,7 +152,7 @@ The SYNC_RESPONSE payload is a UTF-8 JSON object:
 
 | Field | Type | Description |
 |---|---|---|
-| `utc_offset` | int | Hours offset from UTC for the user's timezone (e.g. -5 for EST). Used to convert the TIME_SYNC epoch to local time. |
+| `utc_offset` | int | Hours offset from UTC for the user's timezone (e.g. -5 for EST). Used to convert the TIME_SYNC UTC datetime to local time. |
 | `weather_now.temp` | int | Current temperature (Fahrenheit). |
 | `weather_now.condition` | string | One of the canonical condition names (see `weather_types.md`). |
 | `weather_1h.temp` | int | Temperature forecast for +1 hour. |
@@ -200,7 +200,7 @@ The laptop service must:
    a. Requiring `AUTH_TOKEN`; rejecting with `ERR_AUTH_FAILED` if missing.
    b. Decrypting the payload and validating it equals AUTH_TOKEN.
    c. Gathering current weather, upcoming meetings, and UTC offset.
-   d. Encrypting and sending TIME_SYNC with the current UTC epoch.
+   d. Encrypting and sending TIME_SYNC with the current UTC datetime (year, month, day, hour, minute, second).
    e. Encrypting and sending the `server_data` JSON as a chunked SYNC_RESPONSE.
 4. **Accept ACK** to confirm the watch received the data.
 5. **Optionally send EXTRA** messages during the connection window.

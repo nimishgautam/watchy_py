@@ -2,7 +2,7 @@
 
 Connects to the laptop-side GATT peripheral, sends a SYNC_REQUEST,
 collects the TIME_SYNC + SYNC_RESPONSE (+ optional EXTRA) messages via
-notifications, and returns parsed server_data and epoch time.
+notifications, and returns parsed server_data and UTC datetime.
 
 The laptop-side peripheral advertises a custom service UUID and exposes
 two characteristics:
@@ -352,7 +352,7 @@ class BLEClient:
 
         Returns dict with keys:
             "data":  parsed server_data dict (from SYNC_RESPONSE)
-            "epoch": UTC epoch int (from TIME_SYNC), or None
+            "datetime": (year, month, day, hour, minute, second) UTC from TIME_SYNC, or None
             "extra": list of raw EXTRA payloads, or []
         Returns None on failure.
         """
@@ -385,7 +385,7 @@ class BLEClient:
 
         deadline = time.ticks_add(time.ticks_ms(), sync_timeout)
         receiver = ChunkedReceiver()
-        epoch = None
+        utc_datetime = None
         extra_payloads = []
         server_data = None
         processed = 0
@@ -407,8 +407,11 @@ class BLEClient:
                     if done:
                         try:
                             plain = decrypt(assembled, key)
-                            if len(plain) >= 4:
-                                epoch = struct.unpack("<I", plain[:4])[0]
+                            if len(plain) >= 7:
+                                year, month, day, hour, minute, second = struct.unpack(
+                                    "<HBBBBB", plain[:7]
+                                )
+                                utc_datetime = (year, month, day, hour, minute, second)
                         except (ValueError, Exception) as e:
                             print("BLE: decrypt TIME_SYNC failed:", e)
 
@@ -456,7 +459,7 @@ class BLEClient:
             self._ble.gattc_write(self._conn_handle, self._tx_handle, frame, 1)
             self._wait_for("_write_done", 2000)
 
-        return {"data": server_data, "epoch": epoch, "extra": extra_payloads}
+        return {"data": server_data, "datetime": utc_datetime, "extra": extra_payloads}
 
     def disconnect(self):
         """Disconnect and deactivate the BLE radio."""
