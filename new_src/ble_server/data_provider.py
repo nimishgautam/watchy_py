@@ -69,7 +69,8 @@ class DummyDataProvider(DataProvider):
         return {
             "utc_offset": utc_offset,
             "weather_now": {"temp": 4, "condition": "windy_rain"},
-            "weather_1h": {"temp": 6, "condition": "severe_weather"},
+            "weather_later": {"temp": 6, "condition": "severe_weather"},
+            "later_hour": (h + 4) % 24,
             "fetch_hour": h,
             "fetch_minute": m,
             "meetings": meetings,

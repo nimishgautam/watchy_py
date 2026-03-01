@@ -44,7 +44,7 @@ needed.
 
 The watch connects to a bonded laptop running a GATT peripheral service
 and exchanges a single request/response that provides everything:
-meetings, current weather, +1h weather, the current UTC offset, and a
+meetings, current weather, ~4h-ahead weather, the current UTC offset, and a
 UTC datetime for RTC drift correction. See `ble-protocol.md` for the full
 wire-level specification and `design-overview.md § Data Transport` for
 the JSON schema.
@@ -154,7 +154,7 @@ deep sleep.
 The cache tracks the hour and minute of the last successful BLE sync.
 Data is considered stale immediately after a failed sync attempt.  The
 renderer shows an "X" indicator and switches weather labels from relative
-("now"/"+1h") to absolute ("17h"/"18h") using the cached fetch hour.
+("now"/"+4h") to absolute (e.g. "17h"/"21h") using the cached fetch hour and later_hour.
 
 The display should never show *nothing* just because a sync failed —
 stale data is better than no data.

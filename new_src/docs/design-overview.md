@@ -75,7 +75,7 @@ pixel-level detail):
   that indicates the current quarter-hour and whether the next quarter is
   imminent.
 - **Upper-right (weather):** Current weather icon + temp on one row, forecast
-  (+1 hour) icon + temp on the next row.
+  (~4 hours ahead) icon + temp on the next row.
 - **Bottom half (meetings):** A list of upcoming calendar entries. Each entry
   conveys: time until start, duration, and meeting type/nature. The exact
   visual treatment is still open (see `display-layout.md § Meetings`).
@@ -100,8 +100,9 @@ The JSON payload schema:
     "utc_offset": -5,
     "fetch_hour": 14,
     "fetch_minute": 30,
-    "weather_now":  { "temp": 72, "condition": "sunny" },
-    "weather_1h":   { "temp": 65, "condition": "rain" },
+    "weather_now":   { "temp": 72, "condition": "sunny" },
+    "weather_later": { "temp": 65, "condition": "rain" },
+    "later_hour": 18,
     "meetings": [
         { "date": "2025-02-28", "start_hour": 10, "start_minute": 30,
           "duration_min": 30, "title": "Standup", "type": "meeting" },
@@ -116,8 +117,9 @@ trimming the response. The watch just sends a BLE request, parses the JSON
 response, and caches the result.
 
 The `fetch_hour` and `fetch_minute` fields (local time) indicate when the
-weather was fetched. The watch uses these to display correct hour labels
-(e.g. `14h` / `15h`) when data is stale, instead of the sync time.
+weather was fetched. The `later_hour` field (0–23) indicates which hour the
+`weather_later` forecast refers to. The watch uses these to display correct
+labels (e.g. `14h` / `18h` when stale, or `now` / `+4h` when fresh).
 
 **For development:** set `DUMMY_DATA = True` in `constants.py` to use
 hardcoded mock data without touching BLE.

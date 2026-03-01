@@ -40,8 +40,7 @@ from constants import (
 )
 
 import assets.fonts.fira_sans_regular_14 as font_small   # date, labels, meeting titles
-import assets.fonts.fira_sans_regular_16 as font_mid     # meeting start time
-import assets.fonts.fira_sans_regular_20 as font_medium  # temperature
+import assets.fonts.fira_sans_regular_20 as font_medium  # temperature, meeting start time
 import assets.fonts.symbols_16 as font_glyphs            # meeting type + duration glyphs
 
 import assets.icons as icons
@@ -56,14 +55,14 @@ import assets.icons.placeholder as _icon_placeholder
 # ---------------------------------------------------------------------------
 
 _TYPE_GLYPHS = {
-    "recurring": "\u25ce",   # ◎ bullseye — implies cycle/repeat
-    "call":      "\u25c6",   # ◆ black diamond
-    "live":      "\u25cf",   # ● solid circle — "live" dot
-    "focus":     "\u25a0",   # ■ solid square — blocked time
-    "personal":  "\u25c7",   # ◇ open diamond — lighter feel
-    "general":   "\u25aa",   # ▪ small black square — minimal default
+    "recurring": "\u25b7",   # ▷ right-pointing triangle
+    "call":      "\u2605",   # ★ black star
+    "live":      "\u25c7",   # ◇ open diamond
+    "focus":     "\u25ce",   # ◎ bullseye — blocked time
+    "personal":  "\u2665",   # ♥ heart
+    "general":   "\u266e",   # ♮ natural sign — minimal default
 }
-_TYPE_GLYPH_DEFAULT = "\u25aa"   # ▪ fallback for unknown types
+_TYPE_GLYPH_DEFAULT = "\u266e"   # ♮ fallback for unknown types
 
 # ---------------------------------------------------------------------------
 # Duration → unicode glyph string (clockwise-fill series, up to 2 chars)
@@ -98,7 +97,7 @@ def _duration_glyph(duration_min: int) -> str:
 _WEATHER_ROW_HEIGHT = 44   # px per weather row (28 px icon + text)
 _WEATHER_ICON_X = 104      # icon left edge (4 px from WEATHER_X)
 _WEATHER_TEMP_X = 136      # temp text left edge (4 px gap after 28 px icon)
-_WEATHER_LABEL_X = 170     # short label ("now"/"+1h") right of temperature
+_WEATHER_LABEL_X = 170     # short label ("now"/"+4h") right of temperature
 
 # Battery icon geometry (body + positive-terminal bump)
 # Total width == BATT_BAR_W so bar_x positioning is unchanged.
@@ -144,7 +143,7 @@ def render_all(
     fb.fill(WHITE)
     _render_top_strip(fb, week_day, month, day, battery_voltage, stale_since_hour)
     draw_clock(fb, hour, minute)
-    _render_weather(fb, server_data, stale_since_hour, has_valid_weather)
+    _render_weather(fb, server_data, hour, minute, stale_since_hour, has_valid_weather)
     _render_meetings(fb, server_data, hour, minute, year, month, day, data_is_fresh)
 
 
@@ -197,24 +196,37 @@ def _render_separators(fb):
     fb.hline(0, MEETINGS_Y - 1, DISPLAY_W, BLACK)        # above meetings
 
 
-def _render_weather(fb, server_data: dict, stale_since_hour: int = None,
+def _render_weather(fb, server_data: dict, hour: int, minute: int,
+                    stale_since_hour: int = None,
                     has_valid_weather: bool = True):
-    """Weather zone: two rows (now / +1h).  Zone: x=100-199, y=18-98."""
+    """Weather zone: two rows (now / +4h).  Zone: x=100-199, y=18-98."""
     if not has_valid_weather:
         return
 
     weather_now = server_data.get("weather_now", {})
-    weather_1h = server_data.get("weather_1h", {})
+    weather_later = server_data.get("weather_later", {})
+    later_hour = server_data.get("later_hour")
 
     if stale_since_hour is not None:
         label_now = "{}h".format(stale_since_hour)
-        label_1h  = "{}h".format((stale_since_hour + 1) % 24)
+        if later_hour is not None:
+            label_later = "{}h".format(later_hour)
+        else:
+            label_later = "{}h".format((stale_since_hour + 4) % 24)
     else:
         label_now = "now"
-        label_1h  = "+1h"
+        if later_hour is not None:
+            # hours_away = (later_hour - hour) - minute/60; if negative, add 24 (cross-midnight)
+            hours_away = (later_hour - hour) - minute / 60.0
+            if hours_away < 0:
+                hours_away += 24
+            h = max(1, min(24, int(round(hours_away))))
+            label_later = "+{}h".format(h)
+        else:
+            label_later = "+4h"
 
     _render_weather_row(fb, weather_now, label=label_now, row_top=34)
-    _render_weather_row(fb, weather_1h,  label=label_1h,  row_top=80)
+    _render_weather_row(fb, weather_later, label=label_later, row_top=80)
 
 
 def _render_weather_row(fb, weather: dict, label: str, row_top: int):
@@ -222,7 +234,7 @@ def _render_weather_row(fb, weather: dict, label: str, row_top: int):
 
     Args:
         weather: dict with keys "temp" (int) and "condition" (str).
-        label: short label drawn to the right of the temperature ("now"/"+1h").
+        label: short label drawn to the right of the temperature ("now"/"+4h").
         row_top: y coordinate for the top of the icon and temperature text.
     """
     temp = weather.get("temp")
@@ -237,7 +249,7 @@ def _render_weather_row(fb, weather: dict, label: str, row_top: int):
         temp_str = str(temp) + "\xb0"   # U+00B0 degree symbol
         _write_text(fb, font_medium, temp_str, x=_WEATHER_TEMP_X, y=row_top)
 
-    # Condition label ("now" / "+1h") — vertically centered within the 20 px row height
+    # Condition label ("now" / "+4h") — vertically centered within the 20 px row height
     label_y = row_top + (font_medium.height() - font_small.height()) // 2
     _write_text(fb, font_small, label, x=_WEATHER_LABEL_X, y=label_y)
 
@@ -324,14 +336,14 @@ def _render_meetings(fb, server_data: dict, hour: int, minute: int,
 
         # Time column: 24-hour, no leading zero in hour, e.g. "9:05" or "13:30"
         time_str = str(m["start_hour"]) + ":" + "{:02d}".format(m["start_minute"])
-        _write_text(fb, font_mid, time_str, x=MEETINGS_COL_TIME, y=row_y, color=fg)
+        _write_text(fb, font_medium, time_str, x=MEETINGS_COL_TIME, y=row_y, color=fg)
 
         # Type glyph — rendered with symbols_16 (Fira Sans lacks Geometric Shapes)
         type_glyph = _TYPE_GLYPHS.get(m.get("type", ""), _TYPE_GLYPH_DEFAULT)
         _write_text(fb, font_glyphs, type_glyph, x=MEETINGS_COL_TYPE, y=row_y, color=fg)
 
-        # Title — no truncation; clip naturally at display edge
-        _write_text(fb, font_small, m["title"], x=MEETINGS_COL_TITLE, y=row_y, color=fg)
+        # Title — truncated to 14 characters, may want to revisit if layout changes
+        _write_text(fb, font_small, m["title"][:14], x=MEETINGS_COL_TITLE, y=row_y, color=fg)
 
 
 # ---------------------------------------------------------------------------

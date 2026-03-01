@@ -129,7 +129,7 @@ class Watchy:
                 self._server_data = {
                     "utc_offset": 0,
                     "weather_now": {},
-                    "weather_1h": {},
+                    "weather_later": {},
                     "meetings": [],
                 }
             self._server_data_last_updated = None
@@ -445,11 +445,12 @@ class Watchy:
             minute = now[5]
         year, month, day = now[0], now[1], now[2]
         today = "{:04d}-{:02d}-{:02d}".format(year, month, day)
-        next_hour = (hour + 1) % 24
+        later_hour = (hour + 4) % 24
         return {
             "utc_offset": -5,
             "weather_now": {"temp": 70 + (hour % 4), "condition": "sunny"},
-            "weather_1h": {"temp": 66 + (next_hour % 4), "condition": "cloudy_thin"},
+            "weather_later": {"temp": 66 + (later_hour % 4), "condition": "cloudy_thin"},
+            "later_hour": later_hour,
             "fetch_hour": hour,
             "fetch_minute": minute,
             "meetings": [
@@ -463,7 +464,7 @@ class Watchy:
                 },
                 {
                     "date": today,
-                    "start_hour": next_hour,
+                    "start_hour": later_hour,
                     "start_minute": 0,
                     "duration_min": 60,
                     "title": "Design review",

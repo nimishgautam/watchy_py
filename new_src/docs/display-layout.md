@@ -315,7 +315,7 @@ Stick to two weights of one typeface (Fira Sans Bold + Regular):
 | Hour number | Zen Dots 39 px (digits 0-9 only, slashed-zero patched) | `zen_dots_39` — **generated** |
 | Temperature | Regular 20 px (Bold preferred — needs Bold TTF) | `fira_sans_regular_20` — **generated** |
 | Date, weather labels | Regular 14 px | `fira_sans_regular_14` — **generated** |
-| Meeting time + type/duration glyphs | Regular 16 px | `fira_sans_regular_16`, `symbols_16` — **generated** |
+| Meeting time + type/duration glyphs | Regular 20 px | `fira_sans_regular_20`, `symbols_16` — **generated** |
 | Meeting title | Regular 14 px | `fira_sans_regular_14` — **generated** |
 
 Fonts are generated via `new_src/build/generate_fonts.py`

@@ -46,7 +46,7 @@ GAP_BAR_THRESHOLD_MIN = const(60)  # minutes gap that triggers the bar
 # Row order: duration, start time, type glyph, title.
 MEETINGS_COL_DUR   = const(4)    # duration glyph(s), up to 2 chars wide
 MEETINGS_COL_TIME  = const(42)   # shifted right to leave room for 2-glyph durations
-MEETINGS_COL_TYPE  = const(93)   # keep spacing after wider time placement
+MEETINGS_COL_TYPE  = const(88)   # keep spacing after wider time placement
 MEETINGS_COL_TITLE = const(108)  # event title
 
 # Battery voltage thresholds (LiPo: 4.2 V full, 3.0 V empty)

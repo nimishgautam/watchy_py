@@ -27,5 +27,5 @@ That string must be one of the canonical snake_case values below.
 - Combined conditions are explicit by design (for example `windy_rain`), not
   modifier-based.
 - This list is the source of truth for both `weather_now.condition` and
-  `weather_1h.condition`.
+  `weather_later.condition`.
 - Unknown conditions should fall back to the placeholder icon in the renderer.

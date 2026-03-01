@@ -38,12 +38,13 @@ _FIRA_CHAR_SET = (
 # shape glyphs used for meeting type and duration indicators.
 _SYMBOL_CHAR_SET = (
     " +"
-    + "\u25a0"   # ■ focus type
-    + "\u25aa"   # ▪ general type
-    + "\u25c6"   # ◆ call type
-    + "\u25c7"   # ◇ personal type
-    + "\u25ce"   # ◎ recurring type
-    + "\u25cf"   # ● live type; duration full-circle
+    + "\u25ce"   # ◎ focus type
+    + "\u266e"   # ♮ general type
+    + "\u2605"   # ★ call type
+    + "\u2665"   # ♥ personal type
+    + "\u25b7"   # ▷ recurring type
+    + "\u25c7"   # ◇ live type
+    + "\u25cf"   # ● duration full-circle
     + "\u25d1"   # ◑ duration half-circle (30 min)
     + "\u25d4"   # ◔ duration quarter-circle (15 min)
     + "\u25d5"   # ◕ duration three-quarter-circle (45 min)
@@ -56,7 +57,6 @@ _CLOCK_CHAR_SET = " 0123456789"
 # Add new entries here as needed.
 FONTS = [
     ("fira_sans_regular_14", 14, TTF_REGULAR,     ["-c", _FIRA_CHAR_SET]),
-    ("fira_sans_regular_16", 16, TTF_REGULAR,     ["-c", _FIRA_CHAR_SET]),
     ("fira_sans_regular_20", 20, TTF_REGULAR,     ["-c", _FIRA_CHAR_SET]),
     ("zen_dots_39",          39, TTF_ZEN_DOTS,    ["-c", _CLOCK_CHAR_SET]),
     ("symbols_14",           14, TTF_DEJAVU_SANS, ["-c", _SYMBOL_CHAR_SET]),

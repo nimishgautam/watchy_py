@@ -109,7 +109,7 @@ def _dummy_meetings() -> list[dict[str, Any]]:
 
 
 def build_weather_data(api_response: dict[str, Any], tz_offset_h: int) -> dict[str, Any]:
-    """Build weather-only dict (utc_offset, weather_now, weather_1h). No meetings."""
+    """Build weather-only dict (utc_offset, weather_now, weather_later, later_hour). No meetings."""
     return _build_weather_from_response(api_response, tz_offset_h)
 
 
@@ -143,7 +143,7 @@ def _build_weather_from_response(
         "condition": wmo_to_condition(code_now, is_day_now, wind_now, gusts_now),
     }
 
-    # weather_1h: next full hour from hourly arrays
+    # weather_later: hourly slot at or after now + 4 hours
     times = hourly.get("time", [])
     temps = hourly.get("temperature_2m", [])
     codes = hourly.get("weather_code", [])
@@ -152,34 +152,36 @@ def _build_weather_from_response(
     gusts = hourly.get("wind_gusts_10m", [])
 
     now_local = datetime.datetime.now(datetime.timezone.utc).astimezone()
-    target = (now_local + datetime.timedelta(hours=1)).replace(
+    target = (now_local + datetime.timedelta(hours=4)).replace(
         minute=0, second=0, microsecond=0
     )
     target_str = target.strftime("%Y-%m-%dT%H:%M")
+    later_hour = target.hour
 
-    idx_1h = 0
+    idx_later = 0
     for i, t in enumerate(times):
         if str(t) >= target_str:
-            idx_1h = i
+            idx_later = i
             break
 
-    temp_1h = temps[idx_1h] if idx_1h < len(temps) else temp_now
-    code_1h = codes[idx_1h] if idx_1h < len(codes) else code_now
-    is_day_1h = is_days[idx_1h] if idx_1h < len(is_days) else 1
-    wind_1h = winds[idx_1h] if idx_1h < len(winds) else 0
-    gusts_1h = gusts[idx_1h] if idx_1h < len(gusts) else 0
+    temp_later = temps[idx_later] if idx_later < len(temps) else temp_now
+    code_later = codes[idx_later] if idx_later < len(codes) else code_now
+    is_day_later = is_days[idx_later] if idx_later < len(is_days) else 1
+    wind_later = winds[idx_later] if idx_later < len(winds) else 0
+    gusts_later = gusts[idx_later] if idx_later < len(gusts) else 0
 
-    weather_1h = {
-        "temp": int(round(temp_1h)) if temp_1h is not None else 0,
+    weather_later = {
+        "temp": int(round(temp_later)) if temp_later is not None else 0,
         "condition": wmo_to_condition(
-            code_1h, is_day_1h, wind_1h or 0, gusts_1h or 0
+            code_later, is_day_later, wind_later or 0, gusts_later or 0
         ),
     }
 
     return {
         "utc_offset": tz_offset_h,
         "weather_now": weather_now,
-        "weather_1h": weather_1h,
+        "weather_later": weather_later,
+        "later_hour": later_hour,
         "fetch_hour": now_local.hour,
         "fetch_minute": now_local.minute,
     }

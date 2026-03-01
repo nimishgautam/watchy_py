@@ -132,10 +132,11 @@ The SYNC_RESPONSE payload is a UTF-8 JSON object:
         "temp": 72,
         "condition": "sunny"
     },
-    "weather_1h": {
+    "weather_later": {
         "temp": 65,
         "condition": "rain"
     },
+    "later_hour": 18,
     "meetings": [
         {
             "start_hour": 10,
@@ -155,8 +156,9 @@ The SYNC_RESPONSE payload is a UTF-8 JSON object:
 | `utc_offset` | int | Hours offset from UTC for the user's timezone (e.g. -5 for EST). Used to convert the TIME_SYNC UTC datetime to local time. |
 | `weather_now.temp` | int | Current temperature (Fahrenheit). |
 | `weather_now.condition` | string | One of the canonical condition names (see `weather_types.md`). |
-| `weather_1h.temp` | int | Temperature forecast for +1 hour. |
-| `weather_1h.condition` | string | Condition forecast for +1 hour. |
+| `weather_later.temp` | int | Temperature forecast for ~4 hours ahead (see `later_hour`). |
+| `weather_later.condition` | string | Condition forecast for ~4 hours ahead. |
+| `later_hour` | int | Local hour (0–23) that `weather_later` refers to. Used for display labels. |
 | `meetings` | array | Up to 10 upcoming meetings, sorted by start time. |
 | `meetings[].start_hour` | int | 0-23, local time. |
 | `meetings[].start_minute` | int | 0-59. |
