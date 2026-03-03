@@ -14,6 +14,7 @@ import logging
 from pathlib import Path
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo
 
 from . import open_meteo
 
@@ -85,10 +86,12 @@ class CacheBackedDataProvider(DataProvider):
         weather_cache_path: Path | str,
         calendar_cache_path: Path | str,
         weather_fetcher: "WeatherFetcher",
+        user_timezone: str | None = None,
     ) -> None:
         self._weather_cache_path = Path(weather_cache_path)
         self._calendar_cache_path = Path(calendar_cache_path)
         self._weather_fetcher = weather_fetcher
+        self._user_timezone = user_timezone
 
     def get_server_data(self) -> dict | None:
         """Read both caches and merge. If weather missing/invalid, trigger fetch and return None."""
@@ -106,10 +109,14 @@ class CacheBackedDataProvider(DataProvider):
 
             # Staleness check: if cache has a timestamp and is too old, trigger
             # refetch and return None so the watch gets ERR_NOT_READY.
+            # Use same timezone as fetcher so fetch_hour/fetch_minute compare correctly.
             fh = weather_data.get("fetch_hour")
             fm = weather_data.get("fetch_minute")
             if fh is not None and fm is not None:
-                now = datetime.datetime.now(datetime.timezone.utc).astimezone()
+                if self._user_timezone:
+                    now = datetime.datetime.now(ZoneInfo(self._user_timezone))
+                else:
+                    now = datetime.datetime.now(datetime.timezone.utc).astimezone()
                 fetch_mins = fh * 60 + fm
                 now_mins = now.hour * 60 + now.minute
                 age_mins = now_mins - fetch_mins

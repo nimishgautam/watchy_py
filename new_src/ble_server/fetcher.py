@@ -7,6 +7,7 @@ import datetime
 import json
 import logging
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from . import open_meteo
 
@@ -24,12 +25,14 @@ class WeatherFetcher:
         cache_path: Path | str,
         interval_seconds: int = 2700,
         timezone: str = "auto",
+        user_timezone: str | None = None,
     ) -> None:
         self._latitude = latitude
         self._longitude = longitude
         self._cache_path = Path(cache_path)
         self._interval = interval_seconds
         self._timezone = timezone
+        self._user_timezone = user_timezone
         self._trigger_immediate = asyncio.Event()
         self._shutdown = asyncio.Event()
 
@@ -61,7 +64,10 @@ class WeatherFetcher:
         if raw is None:
             log.warning("Open-Meteo fetch failed")
             return
-        now = datetime.datetime.now(datetime.timezone.utc).astimezone()
+        if self._user_timezone:
+            now = datetime.datetime.now(ZoneInfo(self._user_timezone))
+        else:
+            now = datetime.datetime.now(datetime.timezone.utc).astimezone()
         tz_offset_h = int(now.utcoffset().total_seconds()) // 3600
 
         server_data = open_meteo.build_weather_data(raw, tz_offset_h)

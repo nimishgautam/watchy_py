@@ -26,10 +26,12 @@ class CalendarFetcher:
         calendar_cache_path: Path | str,
         token_cache_path: Path | str,
         interval_seconds: int = CALENDAR_INTERVAL_SECONDS,
+        timezone_name: str | None = None,
     ) -> None:
         self._calendar_cache_path = Path(calendar_cache_path)
         self._token_cache_path = Path(token_cache_path)
         self._interval = interval_seconds
+        self._timezone_name = timezone_name
         self._trigger_immediate = asyncio.Event()
         self._shutdown = asyncio.Event()
 
@@ -76,6 +78,7 @@ class CalendarFetcher:
             hours_ahead=CALENDAR_HOURS_AHEAD,
             limit=CALENDAR_MEETING_LIMIT,
             allow_device_flow=False,
+            timezone_name=self._timezone_name,
         )
         # TODO: add google_calendar.get_meetings(secrets.GOOGLE_...) when implemented
         merged = calendar_merge.merge_meetings(

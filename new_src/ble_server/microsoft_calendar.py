@@ -11,6 +11,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from zoneinfo import ZoneInfo
+
 import msal
 import requests
 
@@ -202,10 +204,14 @@ def get_meetings(
     hours_ahead: int = 48,
     limit: int = 5,
     allow_device_flow: bool = True,
+    timezone_name: str | None = None,
 ) -> list[dict[str, Any]] | None:
     """Fetch upcoming meetings from Microsoft calendar.
 
     Returns list of BLE-format meetings, or None on auth/fetch failure.
+
+    If timezone_name is set (e.g. "Europe/Berlin"), events are converted to that
+    timezone. Otherwise uses system local timezone.
     """
     token = get_access_token(
         tenant_id=tenant_id,
@@ -217,7 +223,13 @@ def get_meetings(
     if not token:
         return None
 
-    now = datetime.now(timezone.utc).astimezone()
+    if timezone_name:
+        tz = ZoneInfo(timezone_name)
+        now = datetime.now(tz)
+    else:
+        now = datetime.now(timezone.utc).astimezone()
+        tz = now.tzinfo
+
     time_min = now
     time_max = now + timedelta(hours=hours_ahead)
 
@@ -226,6 +238,6 @@ def get_meetings(
         time_min=time_min,
         time_max=time_max,
         limit=limit + 5,  # Fetch extra in case some are filtered
-        tz=now.tzinfo,
+        tz=tz,
     )
     return meetings[:limit]

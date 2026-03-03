@@ -47,22 +47,27 @@ async def main() -> None:
         )
         sys.exit(1)
 
+    user_timezone = getattr(secrets, "TIMEZONE", None)
+
     weather_fetcher = WeatherFetcher(
         latitude=secrets.LATITUDE,
         longitude=secrets.LONGITUDE,
         cache_path=WEATHER_CACHE_PATH,
         interval_seconds=2700,
         timezone="auto",
+        user_timezone=user_timezone,
     )
     calendar_fetcher = CalendarFetcher(
         calendar_cache_path=CALENDAR_CACHE_PATH,
         token_cache_path=TOKEN_CACHE_PATH,
         interval_seconds=1200,  # 20 minutes
+        timezone_name=user_timezone,
     )
     provider = CacheBackedDataProvider(
         weather_cache_path=WEATHER_CACHE_PATH,
         calendar_cache_path=CALENDAR_CACHE_PATH,
         weather_fetcher=weather_fetcher,
+        user_timezone=user_timezone,
     )
 
     weather_task = asyncio.create_task(weather_fetcher.run())
