@@ -161,11 +161,21 @@ class WatchyBLEServer:
                 plain = decrypt(assembled, key)
             except (ValueError, Exception) as e:
                 log.warning("Decrypt SYNC_REQUEST failed: %s", e)
-                self._notify_encrypted(MSG_ERROR, bytes([ERR_AUTH_FAILED]), seq, key)
+                self._loop.call_soon_threadsafe(
+                    asyncio.ensure_future,
+                    self._notify_encrypted_async(
+                        MSG_ERROR, bytes([ERR_AUTH_FAILED]), seq, key
+                    ),
+                )
                 return
             if plain != expected_token.encode("utf-8"):
                 log.warning("Auth failed — token mismatch")
-                self._notify_encrypted(MSG_ERROR, bytes([ERR_AUTH_FAILED]), seq, key)
+                self._loop.call_soon_threadsafe(
+                    asyncio.ensure_future,
+                    self._notify_encrypted_async(
+                        MSG_ERROR, bytes([ERR_AUTH_FAILED]), seq, key
+                    ),
+                )
                 return
             if self._loop is not None:
                 self._loop.call_soon_threadsafe(
@@ -199,11 +209,22 @@ class WatchyBLEServer:
     def _notify_encrypted(
         self, msg_type: int, payload: bytes, seq: int, key: bytes
     ) -> None:
-        """Encrypt payload, chunk, and notify each frame."""
+        """Encrypt payload, chunk, and notify each frame (sync; no inter-chunk delay)."""
         encrypted = encrypt(payload, key)
         frames = chunk_message(msg_type, encrypted, self._usable_mtu, seq=seq)
         for frame in frames:
             self._notify(frame)
+
+    async def _notify_encrypted_async(
+        self, msg_type: int, payload: bytes, seq: int, key: bytes
+    ) -> None:
+        """Encrypt payload, chunk, and notify each frame with inter-chunk delay."""
+        encrypted = encrypt(payload, key)
+        frames = chunk_message(msg_type, encrypted, self._usable_mtu, seq=seq)
+        for i, frame in enumerate(frames):
+            self._notify(frame)
+            if i < len(frames) - 1:
+                await asyncio.sleep(INTER_CHUNK_DELAY_S)
 
     async def _handle_sync(self, seq: int, key: bytes) -> None:
         assert self._server is not None
@@ -219,7 +240,7 @@ class WatchyBLEServer:
             now.tm_min,
             now.tm_sec,
         )
-        self._notify_encrypted(MSG_TIME_SYNC, time_payload, seq, key)
+        await self._notify_encrypted_async(MSG_TIME_SYNC, time_payload, seq, key)
         log.info(
             "Sent TIME_SYNC %04d-%02d-%02d %02d:%02d:%02d UTC",
             now.tm_year,
@@ -236,7 +257,9 @@ class WatchyBLEServer:
         server_data = self._data_provider.get_server_data()
         if server_data is None:
             log.warning("No cached data — sending ERROR Not ready")
-            self._notify_encrypted(MSG_ERROR, bytes([ERR_NOT_READY]), seq, key)
+            await self._notify_encrypted_async(
+                MSG_ERROR, bytes([ERR_NOT_READY]), seq, key
+            )
             return
 
         payload = json.dumps(server_data, separators=(",", ":")).encode()
