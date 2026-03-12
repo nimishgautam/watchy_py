@@ -141,6 +141,7 @@ class Watchy:
             raise RuntimeError("BM8563 RTC not detected at 0x51")
         self.rtc = BM8563(i2c)
         self.adc = ADC(Pin(BATT_ADC_PIN, Pin.IN))
+        self.adc.atten(ADC.ATTN_11DB)
 
         self.init_interrupts()
 
@@ -419,7 +420,7 @@ class Watchy:
         self.display.update()
 
     def get_battery_voltage(self) -> float:
-        return self.adc.read_uv() / 1000 * 2
+        return self.adc.read_uv() / 1_000_000 * 2
 
     def _cache_write(self, data: dict, hour: int, minute: int):
         fh = data.get("fetch_hour", hour)

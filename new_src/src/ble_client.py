@@ -384,7 +384,9 @@ class BLEClient:
                 return None
 
         deadline = time.ticks_add(time.ticks_ms(), sync_timeout)
-        receiver = ChunkedReceiver()
+        time_receiver = ChunkedReceiver()
+        data_receiver = ChunkedReceiver()
+        extra_receiver = ChunkedReceiver()
         utc_datetime = None
         extra_payloads = []
         server_data = None
@@ -403,8 +405,20 @@ class BLEClient:
                     continue
 
                 if msg_type == MSG_TIME_SYNC:
-                    done, assembled = receiver.feed(seq, total, idx, payload)
-                    if done:
+                    # DEBUG REMOVE LATER: trace TIME_SYNC chunk reception
+                    print(
+                        "BLE DEBUG: TIME_SYNC chunk seq={} total={} idx={}".format(
+                            seq, total, idx
+                        )
+                    )
+                    done, assembled = time_receiver.feed(seq, total, idx, payload)
+                    if done and utc_datetime is None:
+                        # DEBUG REMOVE LATER: trace TIME_SYNC reassembly
+                        print(
+                            "BLE DEBUG: TIME_SYNC assembled, len={}".format(
+                                len(assembled)
+                            )
+                        )
                         try:
                             plain = decrypt(assembled, key)
                             if len(plain) >= 7:
@@ -413,11 +427,12 @@ class BLEClient:
                                 )
                                 utc_datetime = (year, month, day, hour, minute, second)
                         except (ValueError, Exception) as e:
-                            print("BLE: decrypt TIME_SYNC failed:", e)
+                            # DEBUG REMOVE LATER: trace TIME_SYNC decrypt failures
+                            print("BLE DEBUG: decrypt TIME_SYNC failed:", e)
 
                 elif msg_type == MSG_SYNC_RESPONSE:
-                    done, assembled = receiver.feed(seq, total, idx, payload)
-                    if done:
+                    done, assembled = data_receiver.feed(seq, total, idx, payload)
+                    if done and server_data is None:
                         try:
                             plain = decrypt(assembled, key)
                             server_data = json.loads(plain)
@@ -425,7 +440,7 @@ class BLEClient:
                             print("BLE: bad SYNC_RESPONSE:", e)
 
                 elif msg_type == MSG_EXTRA:
-                    done, assembled = receiver.feed(seq, total, idx, payload)
+                    done, assembled = extra_receiver.feed(seq, total, idx, payload)
                     if done:
                         try:
                             plain = decrypt(assembled, key)
@@ -434,7 +449,7 @@ class BLEClient:
                             pass
 
                 elif msg_type == MSG_ERROR:
-                    done, assembled = receiver.feed(seq, total, idx, payload)
+                    done, assembled = data_receiver.feed(seq, total, idx, payload)
                     if done:
                         try:
                             plain = decrypt(assembled, key)
@@ -444,7 +459,8 @@ class BLEClient:
                         print("BLE: received ERROR code={}".format(code))
                         return None
 
-            if server_data is not None:
+            # Require at least server_data; TIME_SYNC is optional but preferred.
+            if server_data is not None and utc_datetime is not None:
                 break
 
         if server_data is None:
