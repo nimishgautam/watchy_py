@@ -49,9 +49,15 @@ MEETINGS_COL_TIME  = const(42)   # shifted right to leave room for 2-glyph durat
 MEETINGS_COL_TYPE  = const(88)   # keep spacing after wider time placement
 MEETINGS_COL_TITLE = const(108)  # event title
 
-# Battery voltage thresholds (LiPo: 4.2 V full, 3.0 V empty)
-BATT_MAX_V = 4.2
-BATT_MIN_V = 3.0
+# Battery "voltage" thresholds for battery icon.
+# NOTE: On some clone/knock-off hardware the ADC scaling is unknown, so
+# `get_battery_voltage()` returns a relative value, not true volts.
+# These thresholds are empirically chosen based on observed readings:
+# - BATT_MAX_V: value seen when the watch is freshly charged
+# - BATT_MIN_V: value seen when the watch is nearly empty / about to die
+# The renderer maps this into a 0–1 fill percentage for the battery icon.
+BATT_MAX_V = 1.0   # treat ~1.0 as "full"
+BATT_MIN_V = 0.3   # treat ~0.3 as "empty-ish"
 BATT_BAR_W = const(30)
 BATT_BAR_H = const(6)
 

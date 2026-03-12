@@ -420,7 +420,43 @@ class Watchy:
         self.display.update()
 
     def get_battery_voltage(self) -> float:
-        return self.adc.read_uv() / 1_000_000 * 2
+        """
+        Return a *relative* battery level reading suitable for the UI.
+
+        On the original Watchy hardware, the ADC pin sees ~1/2 of the LiPo
+        voltage through a known resistor divider, so `read_uv()` can be
+        converted to real volts. On some clone/knock-off boards, the divider
+        ratio and ADC calibration are unknown, so the absolute voltage is
+        unreliable.
+
+        Instead of reporting "true volts", we:
+        - Let the ADC settle (discard a few initial samples).
+        - Average several readings to reduce noise.
+        - Return the scaled value directly as a relative metric.
+
+        The renderer then interprets this value using `BATT_MIN_V` and
+        `BATT_MAX_V` from `constants.py` to decide how full the icon should
+        appear. Those thresholds are tuned empirically (e.g. "value at full
+        charge" vs "value when nearly empty").
+        """
+
+        # Discard a few initial readings after wake so the ADC can settle
+        for _ in range(3):
+            self.adc.read_uv()
+
+        # Take multiple samples and average them to reduce noise
+        samples = 5
+        total_uv = 0
+        for _ in range(samples):
+            total_uv += self.adc.read_uv()
+            time.sleep_ms(5)
+
+        avg_uv = total_uv / samples
+
+        # Convert microvolts at the ADC pin into an arbitrary "battery units"
+        # value. On hardware with unknown dividers/calibration this is *not*
+        # true volts, but it remains monotonic with actual battery level.
+        return avg_uv / 1_000_000 * 2
 
     def _cache_write(self, data: dict, hour: int, minute: int):
         fh = data.get("fetch_hour", hour)
